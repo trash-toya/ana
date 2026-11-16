@@ -2,10 +2,17 @@
 // aged out (touch_bucket moved back) so the job competes with real writers.
 // Expected: no lost events; no session archived while being written in a way that
 // loses data; no session twice in history; guard counters == stored events.
-import { test } from "node:test";
+import { test } from "vitest";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
-import { withTestDb, ingest, event, forceArchive, assertInvariant } from "../harness.mjs";
+import {
+  withTestDb,
+  ingest,
+  event,
+  forceArchive,
+  assertInvariant,
+  recentBase,
+} from "../harness.mjs";
 
 const randomUuid = () => crypto.randomUUID();
 
@@ -29,7 +36,8 @@ test("T6: ingest races archive without loss", async () => {
 
     // Writers: each worker pushes batches to its session as fast as it can.
     const seqCounter = new Map(sessionIds.map((s) => [s, 0]));
-    let t = Date.UTC(2026, 10, 15, 14, 0, 0);
+    // Recent anchor: event times stay inside the I3/I8 windows on any run date.
+    let t = recentBase();
 
     const writers = sessionIds.map(async (sessionId) => {
       while (!stop) {
@@ -39,15 +47,24 @@ test("T6: ingest races archive without loss", async () => {
           const baseSeq = seqCounter.get(sessionId);
           for (let i = 0; i < 50; i++) {
             const seq = baseSeq + i + 1;
-            batch.push(event({
-              tenantId, sessionId, eventId: randomUuid(), seq,
-              time: new Date(t + seq * 1000), name: "page_view", cat: "e",
-            }));
+            batch.push(
+              event({
+                tenantId,
+                sessionId,
+                eventId: randomUuid(),
+                seq,
+                time: new Date(t + seq * 1000),
+                name: "page_view",
+                cat: "e",
+              }),
+            );
           }
           t += 50_000;
           const r = await ingest(client, batch);
-          perSessionStored.set(sessionId,
-            perSessionStored.get(sessionId) + r.stored.length);
+          perSessionStored.set(
+            sessionId,
+            perSessionStored.get(sessionId) + r.stored.length,
+          );
           seqCounter.set(sessionId, baseSeq + r.stored.length);
           // Age the session so the archiver competes for it mid-write.
           if (Math.random() < 0.3) {
@@ -89,8 +106,11 @@ test("T6: ingest races archive without loss", async () => {
       assert.equal(hist.rows.length, SESSIONS, "one history row per session (I4)");
       for (const row of hist.rows) {
         const stored = perSessionStored.get(row.session_id);
-        assert.equal(Number(row.total), stored,
-          `history total for ${row.session_id.slice(0, 8)} equals stored`);
+        assert.equal(
+          Number(row.total),
+          stored,
+          `history total for ${row.session_id.slice(0, 8)} equals stored`,
+        );
       }
 
       const nActive = await c.query("SELECT count(*) AS n FROM sessions_active");

@@ -1,24 +1,32 @@
 // T9 — kill the backend mid-transaction (pg_terminate_backend), repeatedly, and prove
 // there are no partial effects: after every kill, events, dedupe, guard and session
 // counters still agree, and a follow-up ingest succeeds cleanly.
-import { test } from "node:test";
+import { test } from "vitest";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import pg from "pg";
-import { withTestDb, ingest, event, assertInvariant } from "../harness.mjs";
+import { withTestDb, ingest, event, assertInvariant, recentBase } from "../harness.mjs";
 
 const randomUuid = () => crypto.randomUUID();
 
-const BASE = Date.UTC(2026, 10, 15, 13, 0, 0);
+// Recent anchor, captured once: event times stay inside the I3/I8 windows on
+// any run date, and one constant keeps (time, seq) ordering deterministic.
+const BASE = recentBase();
 
 function batch(tenantId, sessionId, offset, count, seqBase) {
   const out = [];
   for (let i = 0; i < count; i++) {
-    out.push(event({
-      tenantId, sessionId, eventId: randomUuid(),
-      seq: seqBase + i,
-      time: new Date(BASE + (offset + i) * 1000), name: "page_view", cat: "e",
-    }));
+    out.push(
+      event({
+        tenantId,
+        sessionId,
+        eventId: randomUuid(),
+        seq: seqBase + i,
+        time: new Date(BASE + (offset + i) * 1000),
+        name: "page_view",
+        cat: "e",
+      }),
+    );
   }
   return out;
 }
@@ -41,8 +49,9 @@ test("T9: pg_terminate_backend mid-transaction leaves no partial effects", async
       const { pid } = (await victim.query("SELECT pg_backend_pid() AS pid")).rows[0];
 
       const seqBase = completed * 300 + 1;
-      const call = victim.query("SELECT ingest_batch($1) AS r",
-        [JSON.stringify(batch(tenantId, sessionId, completed * 300, 300, seqBase))]);
+      const call = victim.query("SELECT ingest_batch($1) AS r", [
+        JSON.stringify(batch(tenantId, sessionId, completed * 300, 300, seqBase)),
+      ]);
       // Attach the handler NOW: the terminate can reject this promise before the
       // try/catch below reaches `await call`, and an unhandled-rejection window in
       // between fails the test run. (Also swallowed on the client via victim.on('error').)
@@ -59,19 +68,25 @@ test("T9: pg_terminate_backend mid-transaction leaves no partial effects", async
       } catch {
         /* terminated — expected */
       }
-      try { await victim.end(); } catch { /* already gone */ }
+      try {
+        await victim.end();
+      } catch {
+        /* already gone */
+      }
 
       // Whatever happened, the database must be consistent.
       const c = await pool.connect();
       try {
-        const counts = await c.query(`
+        const counts = await c.query(
+          `
           SELECT (SELECT count(*) FROM events) AS ev,
                  (SELECT count(*) FROM event_dedupe) AS dd,
                  (SELECT coalesce(sum(total_events), 0) FROM session_guard
                    WHERE tenant_id = $1 AND session_id = $2) AS g,
                  (SELECT coalesce(sum(total_events), 0) FROM sessions_active
                    WHERE tenant_id = $1 AND session_id = $2) AS a`,
-          [tenantId, sessionId]);
+          [tenantId, sessionId],
+        );
         const { ev, dd, g, a } = counts.rows[0];
         assert.equal(Number(ev), Number(dd), "events == dedupe rows after a kill");
         assert.equal(Number(g), Number(ev), "guard counter == events after a kill");
@@ -83,8 +98,10 @@ test("T9: pg_terminate_backend mid-transaction leaves no partial effects", async
       // A clean batch after the kill goes through normally and is counted.
       const survivor = await pool.connect();
       try {
-        const r = await ingest(survivor,
-          batch(tenantId, sessionId, completed * 300, 50, 900000 + completed * 50));
+        const r = await ingest(
+          survivor,
+          batch(tenantId, sessionId, completed * 300, 50, 900000 + completed * 50),
+        );
         completed += r.stored.length;
       } finally {
         survivor.release();
@@ -102,8 +119,11 @@ test("T9: pg_terminate_backend mid-transaction leaves no partial effects", async
         "SELECT count(*) AS n FROM events WHERE tenant_id = $1 AND session_id = $2",
         [tenantId, sessionId],
       );
-      assert.equal(Number(n.rows[0].n), KILLS * 50,
-        "each surviving batch stored exactly once, no kill residue");
+      assert.equal(
+        Number(n.rows[0].n),
+        KILLS * 50,
+        "each surviving batch stored exactly once, no kill residue",
+      );
     } finally {
       c.release();
       admin.release();

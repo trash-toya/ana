@@ -100,6 +100,18 @@ export async function withTestDb(label, fn) {
 // Fixture builders
 // ---------------------------------------------------------------------------
 
+/**
+ * A recent anchor for event times. Fixed-date fixtures (e.g. 2026-11-15) rot:
+ * invariant I3 only counts events within `session_guard.created_at - 24 h` and
+ * I8 within `now() - 3 days`, so an old hardcoded date eventually falls outside
+ * the window and the invariant reports a phantom violation. Anchoring to
+ * wall-clock minus a couple of hours keeps every asserted event inside both
+ * windows regardless of when the suite runs.
+ */
+export function recentBase(hoursAgo = 2) {
+  return Date.now() - hoursAgo * 3_600_000;
+}
+
 export function sha(parts) {
   // Deterministic stand-in for payloadHash: any distinct string per payload works;
   // the canonical-JSON contract lives in packages/shared (P1).
@@ -109,9 +121,22 @@ export function sha(parts) {
   return `h${h.toString(16).padStart(8, "0")}`;
 }
 
-export function event({ tenantId, sessionId, eventId, seq, time, name = "page_view",
-  cat = "e", url = "/p", props = {}, anonId = "a1", userId = null, ord,
-  source = "client", receivedAt }) {
+export function event({
+  tenantId,
+  sessionId,
+  eventId,
+  seq,
+  time,
+  name = "page_view",
+  cat = "e",
+  url = "/p",
+  props = {},
+  anonId = "a1",
+  userId = null,
+  ord,
+  source = "client",
+  receivedAt,
+}) {
   const iso = typeof time === "string" ? time : time.toISOString();
   return {
     tenant_id: tenantId,
@@ -135,7 +160,9 @@ export function event({ tenantId, sessionId, eventId, seq, time, name = "page_vi
 
 /** Call ingest_batch with a batch of events on one client. Returns the parsed result. */
 export async function ingest(client, events) {
-  const res = await client.query("SELECT ingest_batch($1) AS r", [JSON.stringify(events)]);
+  const res = await client.query("SELECT ingest_batch($1) AS r", [
+    JSON.stringify(events),
+  ]);
   return res.rows[0]?.r ?? { stored: [], dups: [], capped: [], conflicts: [] };
 }
 

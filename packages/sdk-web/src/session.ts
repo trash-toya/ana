@@ -87,8 +87,8 @@ export function clearRecord(storage: { remove(k: string): void }): void {
 /**
  * Web Locks wrapper. All session-record mutations run inside this callback so
  * two tabs share one record (seq/time are allocated once, globally).
- * No navigator.locks (Safari < 15.4): direct call — the no-lock fallback with
- * leader election is P2-3.
+ * No navigator.locks (Safari < 15.4): callers fall back to `withLease()` —
+ * the lease-based leader election below.
  */
 export async function withLock<T>(
   locks: LockManagerLike | undefined,
@@ -98,6 +98,109 @@ export async function withLock<T>(
     return locks.request(LOCK_NAME, fn);
   }
   return fn();
+}
+
+// ---------------------------------------------------------------------------
+// No-Web-Locks fallback (P2-3, DEVIATIONS.md D33): a localStorage lease acts
+// as the session mutex. A tab claims the lease (write, then re-read — last
+// writer wins in a real cross-tab race); waiters poll (and wake early on
+// storage events when a lifecycle source is available) within a small budget;
+// a waiter whose budget expires proceeds anyway, which is exactly D17's
+// residual-race semantics: a second session_start opens a short separate
+// session that is counted, never silently merged.
+// ---------------------------------------------------------------------------
+
+export const LEASE_KEY = "sa:leader";
+
+export interface LeaseOptions {
+  /** Lease lifetime; the holder must finish its mutation within it. Default 5 s. */
+  ttlMs?: number;
+  /** How long a waiter waits for the lease before proceeding anyway. Default 250 ms. */
+  budgetMs?: number;
+  /** Poll interval between claim attempts. Default 2 ms. */
+  pollMs?: number;
+  /** Early-wake source (storage events). Returns an unsubscribe function. */
+  subscribe?: (wake: () => void) => () => void;
+}
+
+interface Lease {
+  holder: string;
+  expires_at: number;
+}
+
+/** Test/introspection helper: read the lease a storage currently holds. */
+export function readLease(storage: { get(k: string): string | null }): Lease | null {
+  const raw = storage.get(LEASE_KEY);
+  if (!raw) return null;
+  try {
+    const lease = JSON.parse(raw) as Lease;
+    if (typeof lease.holder !== "string" || typeof lease.expires_at !== "number") {
+      return null;
+    }
+    return lease;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The no-locks mutex. The claim is a synchronous read → write → re-read, so
+ * within one JS context it is a perfect mutex; across real tabs the re-read
+ * closes everything but a storage-layer write race, and the budget-expires
+ * path degrades to D17's documented residual race instead of losing events.
+ */
+export async function withLease<T>(
+  storage: {
+    get(k: string): string | null;
+    set(k: string, v: string): void;
+    remove(k: string): void;
+  },
+  now: () => number,
+  options: LeaseOptions | undefined,
+  fn: () => Promise<T> | T,
+): Promise<T> {
+  const ttlMs = options?.ttlMs ?? 5_000;
+  const budgetMs = options?.budgetMs ?? 250;
+  const pollMs = options?.pollMs ?? 2;
+  const token = uuidv7(now(), randomBytes());
+  // The wait budget is wall-clock (the poll sleeps are real); lease validity
+  // follows the SDK's injected clock so tests control expiry deterministically.
+  const deadline = Date.now() + budgetMs;
+
+  for (;;) {
+    const lease = readLease(storage);
+    if (!lease || lease.holder === token || lease.expires_at <= now()) {
+      storage.set(
+        LEASE_KEY,
+        JSON.stringify({ holder: token, expires_at: now() + ttlMs }),
+      );
+      const again = readLease(storage); // last writer wins in a cross-tab race
+      if (again && again.holder === token) {
+        try {
+          return await fn();
+        } finally {
+          const cur = readLease(storage);
+          if (cur && cur.holder === token) storage.remove(LEASE_KEY);
+        }
+      }
+    }
+    if (Date.now() >= deadline) {
+      // Election failed; proceed anyway (D17). The event is never lost: if
+      // this races another tab's cold start, both sessions are counted.
+      return fn();
+    }
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(resolve, pollMs);
+      const off = options?.subscribe?.(() => {
+        clearTimeout(timer);
+        resolve();
+      });
+      if (off) {
+        // Unsubscribe once the timer path resolves as well.
+        setTimeout(() => off(), pollMs + 1);
+      }
+    });
+  }
 }
 
 /** Run `fn` while holding the session lock, with the record loaded/saved. */

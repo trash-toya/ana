@@ -115,7 +115,13 @@ session.
 
 `lastAt` and the counters live in the stored record, not in tab memory, so two tabs
 cannot emit the same time or the same `seq`. Every mutation happens inside one function,
-inside the lock.
+inside the lock (D33). The lock is `navigator.locks` when available; otherwise
+(`Safari < 15.4`, or `browser.locks: null` in tests) a **lease-based leader election**
+(`withLease()`, `sa:leader` key) plays the mutex: claim via read → write → re-read,
+waiters poll every 2 ms and wake early on `storage` events for the lease key, within a
+250 ms wall-clock budget. An election that still fails proceeds unlocked — the Notion
+plan documents the resulting two-tab cold-start split as accepted; here that is exactly
+the D17 residual race (short counted sessions, never a lost event).
 
 ## React Native SDK (`packages/sdk-react-native`) — secondary
 

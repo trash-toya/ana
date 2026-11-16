@@ -31,17 +31,17 @@ import {
   type QueueStorage,
 } from "./queue.js";
 import {
-  AGE_LIMIT_MS,
   ANON_KEY,
   clearRecord,
   CONSENT_KEY,
   expiryReason,
+  LEASE_KEY,
   loadRecord,
   newSessionId,
   saveRecord,
-  SESSION_KEY,
+  LOCK_NAME,
   USER_KEY,
-  withLock,
+  withLease,
   type LockManagerLike,
   type SessionRecord,
 } from "./session.js";
@@ -51,7 +51,6 @@ import {
   MAX_EVENTS_PER_REQUEST,
   selectBatch,
   sendBatch,
-  type SendResult,
 } from "./transport.js";
 import { openMirror, type EventMirror } from "./mirror.js";
 import { randomBytes, uuidv7 } from "./ids.js";
@@ -59,8 +58,8 @@ import { randomBytes, uuidv7 } from "./ids.js";
 export interface Browser {
   /** Synchronous key/value storage (localStorage in the browser). */
   storage: QueueStorage;
-  /** Web Locks (navigator.locks); optional for tests / old browsers. */
-  locks?: LockManagerLike;
+  /** Web Locks (navigator.locks); `null` forces the no-locks lease path in tests. */
+  locks?: LockManagerLike | null;
   fetchFn: typeof fetch;
   now: () => number;
   /** Page context source; optional in non-DOM runtimes. */
@@ -71,18 +70,26 @@ export interface Browser {
   mirror?: Promise<EventMirror | undefined>;
   /** Jitter source in [0,1) for retry backoff (tests). Default Math.random. */
   jitter?: () => number;
+  /** No-Web-Locks lease tuning (tests); defaults in session.ts `withLease`. */
+  lease?: { ttlMs?: number; budgetMs?: number; pollMs?: number };
   /**
    * Lifecycle events for the unload flush and bfcache resume. Defaults to the
-   * real `pagehide`/`pageshow` (window) and `visibilitychange` (document);
-   * absent in non-DOM runtimes.
+   * real `pagehide`/`pageshow` (window), `visibilitychange` (document) and
+   * `storage` (window); absent in non-DOM runtimes.
    */
   lifecycle?: LifecycleSource;
 }
 
 /** Minimal event-source shape (window/document) for lifecycle wiring. */
 export interface LifecycleSource {
-  add(type: string, cb: (ev?: { persisted?: boolean }) => void): void;
-  remove(type: string, cb: (ev?: { persisted?: boolean }) => void): void;
+  add(
+    type: string,
+    cb: (ev?: { persisted?: boolean; storageKey?: string | null }) => void,
+  ): void;
+  remove(
+    type: string,
+    cb: (ev?: { persisted?: boolean; storageKey?: string | null }) => void,
+  ): void;
 }
 
 export interface InitOptions {
@@ -133,7 +140,7 @@ const MAX_FLUSH_ATTEMPTS = 8;
 export function init(options: InitOptions): AnalyticsSdk {
   const browser: Browser = {
     storage: options.browser?.storage ?? defaultStorage(),
-    locks: options.browser?.locks ?? defaultLocks(),
+    locks: options.browser?.locks === undefined ? defaultLocks() : options.browser?.locks,
     fetchFn: options.browser?.fetchFn ?? defaultFetch(),
     now: options.browser?.now ?? (() => Date.now()),
     page: options.browser?.page ?? defaultPage(),
@@ -156,7 +163,13 @@ export function init(options: InitOptions): AnalyticsSdk {
     lastInteraction: browser.now(),
     heartbeatTimer: null as ReturnType<typeof setInterval> | null,
     interactionListeners: [] as (() => void)[],
-    lifecycleListeners: [] as [string, (ev?: { persisted?: boolean }) => void][],
+    lifecycleListeners: [] as [
+      string,
+      (ev?: { persisted?: boolean; storageKey?: string | null }) => void,
+    ][],
+    /** Waiters blocked on the no-Web-Locks lease (P2-3). */
+    leaseWaiters: new Set<() => void>(),
+    leaseListenerAdded: false,
     mirror: undefined as EventMirror | undefined,
     /** Opens the mirror, then recovers events the primary lost. Awaited by flush. */
     mirrorReady: Promise.resolve(),
@@ -169,7 +182,7 @@ export function init(options: InitOptions): AnalyticsSdk {
     try {
       state.mirror = await browser.mirror;
       if (state.mirror) {
-        await withLock(browser.locks, () => recoverFromMirror(storage, state.mirror));
+        await guardSession(() => recoverFromMirror(storage, state.mirror));
       }
     } catch {
       /* degraded: primary-only */
@@ -295,6 +308,40 @@ export function init(options: InitOptions): AnalyticsSdk {
     return event;
   }
 
+  // -----------------------------------------------------------------
+  // Session guard: Web Locks when available; otherwise the lease-based
+  // leader election (P2-3). Waiters wake early on `storage` events for the
+  // lease key, then poll until the small budget expires — an election that
+  // still fails proceeds anyway (D17: a raced cold start yields two short
+  // counted sessions, never a lost event).
+  // -----------------------------------------------------------------
+  function leaseSubscribe(wake: () => void): () => void {
+    state.leaseWaiters.add(wake);
+    if (!state.leaseListenerAdded && browser.lifecycle) {
+      state.leaseListenerAdded = true;
+      const onStorage = (ev?: { storageKey?: string | null }) => {
+        if (!ev?.storageKey || ev.storageKey === LEASE_KEY) {
+          for (const w of state.leaseWaiters) w();
+        }
+      };
+      browser.lifecycle.add("storage", onStorage);
+      state.lifecycleListeners.push(["storage", onStorage]);
+    }
+    return () => state.leaseWaiters.delete(wake);
+  }
+
+  function guardSession<T>(fn: () => Promise<T>): Promise<T> {
+    // `locks: null` (tests) forces the lease; absent locks fall back to the
+    // real navigator.locks when the runtime provides one (Node ≥18 does).
+    if (browser.locks) return browser.locks.request(LOCK_NAME, fn);
+    return withLease(
+      storage,
+      browser.now,
+      { ...browser.lease, subscribe: leaseSubscribe },
+      fn,
+    );
+  }
+
   /**
    * The whole locked emit path: load/rotate the session, mint, save the
    * record with FINAL counters, then persist (primary + mirror fallback).
@@ -305,7 +352,7 @@ export function init(options: InitOptions): AnalyticsSdk {
     props?: Record<string, unknown>,
   ): Promise<void> {
     await state.mirrorReady; // mirror open + recovery before any persistence
-    await withLock(browser.locks, async () => {
+    await guardSession(async () => {
       const now = browser.now();
       const ctx = browser.page ? browser.page() : null;
       const userId = storage.get(USER_KEY);
@@ -553,7 +600,12 @@ function defaultStorage(): QueueStorage {
 }
 
 function defaultLocks(): Browser["locks"] {
-  return typeof navigator !== "undefined" ? (navigator.locks ?? undefined) : undefined;
+  // Node ≥18 implements real Web Locks (single process), so tests and the
+  // browser share one code path; old browsers (Safari < 15.4) have no
+  // navigator.locks and fall through to the lease-based election (P2-3).
+  if (typeof navigator === "undefined") return undefined;
+  const locks = (navigator as { locks?: LockManagerLike | undefined }).locks;
+  return locks && typeof locks.request === "function" ? locks : undefined;
 }
 
 function defaultFetch(): typeof fetch {
@@ -579,8 +631,10 @@ function defaultLifecycle(): Browser["lifecycle"] {
   const handlers = new Map<string, (e: Event) => void>();
   return {
     add(type, cb) {
-      const handler = (e: Event) =>
-        cb({ persisted: (e as PageTransitionEvent).persisted });
+      const handler = (e: Event) => {
+        if (type === "storage") cb({ storageKey: (e as StorageEvent).key });
+        else cb({ persisted: (e as PageTransitionEvent).persisted });
+      };
       handlers.set(type, handler);
       if (type === "visibilitychange") document.addEventListener(type, handler);
       else window.addEventListener(type, handler);

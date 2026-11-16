@@ -55,7 +55,7 @@ export function selectBatch(
   let bytes = 0;
   for (const e of events) {
     const size = JSON.stringify(e).length + 2; // + comma/quote overhead
-    if (batch.length >= MAX_EVENTS_PER_REQUEST) break;
+    if (batch.length >= maxEvents) break;
     if (batch.length > 0 && bytes + size > maxBytes) break;
     batch.push(e);
     bytes += size;
@@ -129,7 +129,10 @@ export async function sendBatch(
 }
 
 /** Retry-After is delta-seconds or an HTTP date; both map to a delay. */
-export function retryAfterMs(value: string | null, nowMs = Date.now()): number | undefined {
+export function retryAfterMs(
+  value: string | null,
+  nowMs = Date.now(),
+): number | undefined {
   if (!value) return undefined;
   const seconds = Number(value);
   if (Number.isFinite(seconds) && seconds >= 0) return Math.round(seconds * 1000);

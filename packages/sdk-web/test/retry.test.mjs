@@ -1,7 +1,7 @@
 // P2-2: the full web retry matrix (04-services.md status table).
 // Every row of the table has a test: 200/400/401/403 live in the conformance
 // suite; 400/401/403/413/429/5xx/network and the attempt cap are here.
-import test from "node:test";
+import { test, onTestFinished } from "vitest";
 import assert from "node:assert/strict";
 import { init } from "../dist/index.js";
 import { retryAfterMs } from "../dist/transport.js";
@@ -74,7 +74,7 @@ function makeSdk(t, handler, { retryBaseMs = 1 } = {}) {
       visibility: () => true,
     },
   });
-  t.after(() => sdk.shutdown());
+  onTestFinished(() => sdk.shutdown());
   return { sdk, store, fetchFn };
 }
 
@@ -87,16 +87,19 @@ test("400: the whole batch is dropped permanently, one request only", async (t) 
 });
 
 test("401 and 403: queue retained, flush stops", async (t) => {
+  // A fresh track() mints session_start + page_view + click = 3 queued events.
   for (const status of [401, 403]) {
     const { sdk, store, fetchFn } = makeSdk(t, () => ({ status }));
     await sdk.track("click");
     await sdk.flush();
-    assert.equal(queueDepth(store), 1, `${status}: nothing is lost`);
+    assert.equal(queueDepth(store), 3, `${status}: nothing is lost`);
     assert.equal(fetchFn.calls.length, 1, `${status}: no retry loop`);
   }
 });
 
 test("413: the batch is halved until it fits", async (t) => {
+  // Two tracks mint 4 events; MAX_EVENTS_PER_REQUEST is 500, so the first
+  // attempt is the full queue of 4, then the halving kicks in: 4 → 2 → 2.
   const { sdk, store, fetchFn } = makeSdk(t, ({ index }) =>
     index === 0 ? { status: 413 } : { status: 200 },
   );
@@ -104,17 +107,25 @@ test("413: the batch is halved until it fits", async (t) => {
   await sdk.track("purchase");
   await sdk.flush();
   const sizes = fetchFn.calls.map((call) => call.body.events.length);
-  assert.deepEqual(sizes, [2, 1, 1]);
+  assert.deepEqual(sizes, [4, 2, 2]);
   assert.equal(queueDepth(store), 0);
 });
 
 test("413: a single event that can never fit is dropped and counted", async (t) => {
-  const { sdk, store, fetchFn } = makeSdk(t, () => ({ status: 413 }));
+  // Only the oversized event 413s; the fitting session_start/page_view batch
+  // drains normally, then the huge event is retried alone and dropped once.
+  const { sdk, store, fetchFn } = makeSdk(t, ({ body }) =>
+    body.events.some((e) => e.name === "huge") ? { status: 413 } : { status: 200 },
+  );
   await sdk.track("huge", { props: { blob: "x".repeat(70_000) } });
   await sdk.flush();
   assert.equal(queueDepth(store), 0, "the undeliverable event leaves the queue");
   assert.equal(sdk.__internal.droppedPending(), 1, "counted for sdk_dropped");
-  assert.equal(fetchFn.calls.length, 1, "no halving loop for one event");
+  assert.equal(
+    fetchFn.calls.length,
+    2,
+    "one request for the fitting batch, one for the huge event",
+  );
 });
 
 test("429: Retry-After is honoured, then the batch drains", async (t) => {
@@ -132,11 +143,13 @@ test("5xx: bounded attempts per flush, queue retained for the next call", async 
   await sdk.track("click");
   await sdk.flush();
   assert.equal(fetchFn.calls.length, 8, "MAX_FLUSH_ATTEMPTS bounds the loop");
-  assert.equal(queueDepth(store), 1);
+  assert.equal(queueDepth(store), 3, "the three minted events stay for the next call");
   // The next flush starts a fresh attempt budget and can still succeed.
-  const { sdk: sdk2, store: store2, fetchFn: fetchFn2 } = makeSdk(t, ({ index }) =>
-    index < 2 ? { status: 500 } : { status: 200 },
-  );
+  const {
+    sdk: sdk2,
+    store: store2,
+    fetchFn: fetchFn2,
+  } = makeSdk(t, ({ index }) => (index < 2 ? { status: 500 } : { status: 200 }));
   await sdk2.track("click");
   await sdk2.flush();
   assert.equal(queueDepth(store2), 0);
@@ -161,7 +174,7 @@ test("no-progress 200 (server reports nothing): bounded like a transient failure
   await sdk.track("click");
   await sdk.flush();
   assert.equal(fetchFn.calls.length, 8, "a silent server cannot spin the loop forever");
-  assert.equal(queueDepth(store), 1);
+  assert.equal(queueDepth(store), 3, "the three minted events stay queued");
 });
 
 test("retryAfterMs: delta-seconds, HTTP dates, garbage", () => {
@@ -193,5 +206,8 @@ test("backoff restarts from the base after a success", async (t) => {
   await sdk.flush();
   const elapsed = Date.now() - started;
   assert.ok(elapsed >= 280, `expected the 100+200ms backoff, got ${elapsed}ms`);
-  assert.ok(elapsed < 1_500, `backoff must not compound past one success, got ${elapsed}ms`);
+  assert.ok(
+    elapsed < 1_500,
+    `backoff must not compound past one success, got ${elapsed}ms`,
+  );
 });

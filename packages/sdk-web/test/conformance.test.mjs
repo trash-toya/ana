@@ -89,8 +89,8 @@ function makeEnv(opts = {}) {
 }
 
 const cases = conformance(makeEnv);
-if (cases.length !== 15)
-  throw new Error(`expected 15 conformance cases, got ${cases.length}`);
+if (cases.length !== 16)
+  throw new Error(`expected 16 conformance cases, got ${cases.length}`);
 
 for (const c of cases) {
   test(`conformance: ${c.name}`, async () => {

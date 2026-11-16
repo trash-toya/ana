@@ -115,6 +115,15 @@ honoured; no acknowledged batch lost on a forced 503.
 **G2:** replayed batches after an app kill and mid-batch invalid events produce identical
 session counts; nothing acknowledged is lost.
 
+> **Verified 2026-11-16 (P2 complete).** Evidence — the shared conformance suite
+> (`packages/shared/test/conformance`, 16 cases) runs green on BOTH the web SDK and the
+> RN SDK: "replay after a lost response: identical stored set, no duplicates",
+> "kill mid-flush: after restart the queue holds everything unacknowledged", "batch with
+> one invalid event: valid stored, invalid removed, counts identical", plus the RN-only
+> persistence cases in `packages/sdk-react-native/test/rn.test.mjs` (T10 shutdown
+> mid-flight with counts identical before/after, deep-link expiry surviving a kill).
+> Full suite at the time of the gate: 207 tests / 34 files, lint + typecheck clean.
+
 ---
 
 ## P3 — Rollups and dashboards

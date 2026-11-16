@@ -332,6 +332,29 @@ export function conformance(createEnv) {
       },
     },
     {
+      name: "sdk_dropped after idle expiry: report still goes out",
+      run: async (env) => {
+        await env.sdk.track("click");
+        env.setQuota(env.storageUsedBytes()); // freeze: any new write overflows
+        await env.sdk.track("click"); // overflow → drops counted
+        if (env.sdk.__internal.droppedPending() === 0)
+          throw new Error("drop not counted");
+        // Idle past expiry: the session is gone by the time the report runs.
+        // D10 rule 2: the report must not be guarded by `&& sess` — it rides
+        // the normal emit path (a new session may start under normal expiry
+        // rules), but the drops are never lost to the dead session.
+        env.clock.now += 31 * 60 * 1000;
+        for (let i = 0; i < 5 && env.sdk.__internal.droppedPending() > 0; i++) {
+          await env.sdk.flush();
+        }
+        const reports = [...env.server.store.values()].filter(
+          (e) => e.name === "sdk_dropped",
+        );
+        if (reports.length === 0)
+          throw new Error("sdk_dropped not reported after expiry");
+      },
+    },
+    {
       name: "consent off: queue and session cleared, nothing sent",
       run: async (env) => {
         await env.sdk.track("click");

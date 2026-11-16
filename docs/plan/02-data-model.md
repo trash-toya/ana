@@ -5,22 +5,22 @@ created by one of these files; nothing is created by hand.
 
 ## Migration list (P0 scope, extended later)
 
-| File | Creates | Phase |
-| --- | --- | --- |
-| `0001_extensions.sql` | `timescaledb`, `timescaledb_toolkit`, `pg_stat_statements` (where available) | P0 |
-| `0002_tenancy.sql` | `tenants`, `api_keys`, `tenant_settings`, `identity_map`, and the five service roles | P0 |
-| `0003_events.sql` | `events` hypertable, indexes, compression + retention policies | P0 |
-| `0004_idempotency.sql` | `event_dedupe` + age index | P0 |
-| `0005_session_guard.sql` | `session_guard` + age index | P0 |
-| `0006_sessions_active.sql` | `sessions_active` + touch index | P0 |
-| `0007_sessions_history.sql` | `sessions_history` hypertable, indexes, compression + retention policies, `sessions` view | P0 |
-| `0008_session_stats.sql` | `session_stats_15m` hypertable | P0 |
-| `0009_functions.sql` | `app_tenant()`, `parse_batch()`, `ingest_batch()` (`SECURITY DEFINER`, owned by `app_writer`) plus grants | P0 |
-| `0010_jobs.sql` | `archive_sessions`, `rebuild_session_stats`, `cleanup_idempotency`, `reconcile_session_stats` procedures | P0 |
-| `0011_rls.sql` | RLS enable/force + policies for the roles created in `0002` | P4 |
-| `0012_caggs.sql` | `events_15m`, `identity_15m`, refresh policies, backfill calls | P3 |
-| `0013_daily.sql` | `session_stats_daily`, `identity_daily`, `rollup_daily` | P3 |
-| `0014_schedule.sql` | `add_job` registrations for the jobs that exist in the phase (staging/production only; the test harness never applies it) | P0/P3 |
+| File                        | Creates                                                                                                                   | Phase |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------- | ----- |
+| `0001_extensions.sql`       | `timescaledb`, `timescaledb_toolkit`, `pg_stat_statements` (where available)                                              | P0    |
+| `0002_tenancy.sql`          | `tenants`, `api_keys`, `tenant_settings`, `identity_map`, and the five service roles                                      | P0    |
+| `0003_events.sql`           | `events` hypertable, indexes, compression + retention policies                                                            | P0    |
+| `0004_idempotency.sql`      | `event_dedupe` + age index                                                                                                | P0    |
+| `0005_session_guard.sql`    | `session_guard` + age index                                                                                               | P0    |
+| `0006_sessions_active.sql`  | `sessions_active` + touch index                                                                                           | P0    |
+| `0007_sessions_history.sql` | `sessions_history` hypertable, indexes, compression + retention policies, `sessions` view                                 | P0    |
+| `0008_session_stats.sql`    | `session_stats_15m` hypertable                                                                                            | P0    |
+| `0009_functions.sql`        | `app_tenant()`, `parse_batch()`, `ingest_batch()` (`SECURITY DEFINER`, owned by `app_writer`) plus grants                 | P0    |
+| `0010_jobs.sql`             | `archive_sessions`, `rebuild_session_stats`, `cleanup_idempotency`, `reconcile_session_stats` procedures                  | P0    |
+| `0011_rls.sql`              | RLS enable/force + policies for the roles created in `0002`                                                               | P4    |
+| `0012_caggs.sql`            | `events_15m`, `identity_15m`, refresh policies, backfill calls                                                            | P3    |
+| `0013_daily.sql`            | `session_stats_daily`, `identity_daily`, `rollup_daily`                                                                   | P3    |
+| `0014_schedule.sql`         | `add_job` registrations for the jobs that exist in the phase (staging/production only; the test harness never applies it) | P0/P3 |
 
 Rationale for the split: P0 must be runnable and testable on its own, so tenancy,
 event, identity, session and statistics tables arrive before RLS and rollups. RLS is
@@ -221,6 +221,7 @@ $$ SELECT current_setting('app.tenant_id', false)::uuid $$;  -- raises if unset
 
 Policies are `FOR ALL USING (tenant_id = app_tenant()) WITH CHECK (tenant_id = app_tenant())`
 — the `WITH CHECK` half is what stops cross-tenant inserts.
+
 - Tables to protect: `events`, `sessions_active`, `sessions_history`,
   `session_stats_15m`, `session_stats_daily`, `identity_daily`, `identity_map`. The PDF's
   example names `session_stats_hourly`, which does not exist.
@@ -233,17 +234,17 @@ Policies are `FOR ALL USING (tenant_id = app_tenant()) WITH CHECK (tenant_id = a
 
 ## Invariants and monitors (each has a test)
 
-| ID | Invariant | Query shape |
-| --- | --- | --- |
-| I1 | No duplicate event | `SELECT ... FROM events GROUP BY tenant_id, event_id HAVING count(*) > 1` → 0 rows |
-| I2 | Cap never exceeded | `session_guard.total_events <= 5000` → 0 rows |
-| I3 | Guard matches stored events | `guard.total_events = count(events)` for `event.time >= guard.created_at - INTERVAL '24 hours'` |
-| I4 | One history row per session | `GROUP BY tenant_id, session_id HAVING count(*) > 1` → 0 rows |
-| I5 | Statistics equal a rebuild | snapshot the range, `rebuild_session_stats(tenant, from, to)`, compare every column with `EXCEPT ALL` in both directions (no scratch schema) |
-| I6 | Every dedupe row has a stored event | `event_dedupe LEFT JOIN events` → 0 orphans (D1) |
-| I7 | Sessions without engagement are exceptional | `sessions` where `event_count = 0` is monitored and alerted on, not enforced: a dropped `page_view` leaves a lifecycle-only session, which is why `ec_0` exists |
-| I8 | No orphan events (integrity check, not an FK) | `events` with `time >= now() - INTERVAL '3 days'` **and `session_id IS NOT NULL`** and no `session_guard` row → 0 rows (sessionless events have no guard by design, D29) |
-| I9 | Cross-tenant isolation | `app_dashboard` sees 0 rows of tenant B when `app.tenant_id` = tenant A |
+| ID  | Invariant                                     | Query shape                                                                                                                                                              |
+| --- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| I1  | No duplicate event                            | `SELECT ... FROM events GROUP BY tenant_id, event_id HAVING count(*) > 1` → 0 rows                                                                                       |
+| I2  | Cap never exceeded                            | `session_guard.total_events <= 5000` → 0 rows                                                                                                                            |
+| I3  | Guard matches stored events                   | `guard.total_events = count(events)` for `event.time >= guard.created_at - INTERVAL '24 hours'`                                                                          |
+| I4  | One history row per session                   | `GROUP BY tenant_id, session_id HAVING count(*) > 1` → 0 rows                                                                                                            |
+| I5  | Statistics equal a rebuild                    | snapshot the range, `rebuild_session_stats(tenant, from, to)`, compare every column with `EXCEPT ALL` in both directions (no scratch schema)                             |
+| I6  | Every dedupe row has a stored event           | `event_dedupe LEFT JOIN events` → 0 orphans (D1)                                                                                                                         |
+| I7  | Sessions without engagement are exceptional   | `sessions` where `event_count = 0` is monitored and alerted on, not enforced: a dropped `page_view` leaves a lifecycle-only session, which is why `ec_0` exists          |
+| I8  | No orphan events (integrity check, not an FK) | `events` with `time >= now() - INTERVAL '3 days'` **and `session_id IS NOT NULL`** and no `session_guard` row → 0 rows (sessionless events have no guard by design, D29) |
+| I9  | Cross-tenant isolation                        | `app_dashboard` sees 0 rows of tenant B when `app.tenant_id` = tenant A                                                                                                  |
 
 I6 and I9 do not exist in the PDF; they are the two additions that catch the defects we
 are fixing.

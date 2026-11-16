@@ -6,15 +6,15 @@ and PR titles (`P0-3: session_guard`).
 
 ## Summary
 
-| Phase | Theme | Tasks | Gate |
-| --- | --- | --- | --- |
-| **P0** | Database core | 10 | G0 |
-| P1 | Ingest API + minimal web SDK | 6 | G1 |
-| **P1B** | **Server-first collection (Notion Rev 5)** | **5** | **G1B** |
-| P2 | Durable clients (secondary) | 6 | G2 |
-| P3 | Rollups and dashboards | 6 | G3 |
-| P4 | Production hardening | 8 | G4 |
-| P5 | Optional scaling | 6 | separate approval per item |
+| Phase   | Theme                                      | Tasks | Gate                       |
+| ------- | ------------------------------------------ | ----- | -------------------------- |
+| **P0**  | Database core                              | 10    | G0                         |
+| P1      | Ingest API + minimal web SDK               | 6     | G1                         |
+| **P1B** | **Server-first collection (Notion Rev 5)** | **5** | **G1B**                    |
+| P2      | Durable clients (secondary)                | 6     | G2                         |
+| P3      | Rollups and dashboards                     | 6     | G3                         |
+| P4      | Production hardening                       | 8     | G4                         |
+| P5      | Optional scaling                           | 6     | separate approval per item |
 
 **Rev 5 ordering (2026-11-15):** the canonical path is server-first. The application
 backend bootstraps/resumes a session, propagates an opaque session context, and emits
@@ -31,13 +31,13 @@ and sessionless events to be modelled) but not for the already-finished P1 work.
 be bootstrapped/resumed by the backend, events can arrive without a session, and every
 event carries provenance and both occurrence and receipt times.
 
-| ID | Task | Depends | Done when |
-| --- | --- | --- | --- |
-| P1B-1 | Contract: optional `session_id`/`anon_id`, per-event `source` (client/server/webhook), `received_at` in the prepared row, `missing_anon_id` rejection | P1-1 | Shared contract tests; existing web SDK payloads still valid |
-| P1B-2 | Schema + write path: nullable `session_id`/`anon_id`, `events.source`, `events.received_at`, `api_keys.kind = 'server'`, sessionless branch in `ingest_batch` | P1B-1 | DB test T12: sessionless events store without guard/cap/summary rows; I8 excludes them |
-| P1B-3 | Session bootstrap/resume API: `POST /v1/sessions`, `POST /v1/sessions/validate`, HMAC context token, server credential only | P1B-2 | Idle (30 min) and age (24 h) rotation, concurrent bootstrap returns one session, tampered/expired token rejected |
-| P1B-4 | `@session-analytics/sdk-server`: session-bound and sessionless track, batching, retries, per-event outcomes, session helpers | P1B-3 | Unit tests + e2e through the real ingest app into Postgres |
-| P1B-5 | Webhook/server-to-server adapter: `source: 'webhook'`, producer idempotency, duplicate delivery stores once | P1B-4 | Same `event_id` delivered twice → one stored event, both responses `accepted` |
+| ID    | Task                                                                                                                                                          | Depends | Done when                                                                                                        |
+| ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------- |
+| P1B-1 | Contract: optional `session_id`/`anon_id`, per-event `source` (client/server/webhook), `received_at` in the prepared row, `missing_anon_id` rejection         | P1-1    | Shared contract tests; existing web SDK payloads still valid                                                     |
+| P1B-2 | Schema + write path: nullable `session_id`/`anon_id`, `events.source`, `events.received_at`, `api_keys.kind = 'server'`, sessionless branch in `ingest_batch` | P1B-1   | DB test T12: sessionless events store without guard/cap/summary rows; I8 excludes them                           |
+| P1B-3 | Session bootstrap/resume API: `POST /v1/sessions`, `POST /v1/sessions/validate`, HMAC context token, server credential only                                   | P1B-2   | Idle (30 min) and age (24 h) rotation, concurrent bootstrap returns one session, tampered/expired token rejected |
+| P1B-4 | `@session-analytics/sdk-server`: session-bound and sessionless track, batching, retries, per-event outcomes, session helpers                                  | P1B-3   | Unit tests + e2e through the real ingest app into Postgres                                                       |
+| P1B-5 | Webhook/server-to-server adapter: `source: 'webhook'`, producer idempotency, duplicate delivery stores once                                                   | P1B-4   | Same `event_id` delivered twice → one stored event, both responses `accepted`                                    |
 
 **G1B:** a backend can bootstrap a session, emit a session-bound order event and a
 sessionless webhook event through the server SDK, and the SQL shows both with correct
@@ -54,18 +54,18 @@ payload valid, and dashboards over server events (P3).
 
 **Goal:** prove the transactional design on a real TimescaleDB before writing any client.
 
-| ID | Task | Depends | Done when |
-| --- | --- | --- | --- |
-| P0-1 | Repo scaffold: npm workspaces, TS config, lint/format, `docs/plan/benchmarks/` | — | `npm ci && npm run lint && npm run typecheck` clean |
-| P0-2 | Compose: `timescaledb-ha` (pg17) + PgBouncer; healthcheck asserting `timescaledb_toolkit` and a `hyperloglog` round-trip | P0-1 | `docker compose up -d && npm run db:ping` green; toolkit risk resolved |
-| P0-3 | Migrations `0001`–`0008`: extensions, tenancy, events, dedupe, guard, active, history+view, stats | P0-2 | Migrations apply cleanly from empty DB; second run is a no-op |
-| P0-4 | `app_tenant()`, `parse_batch()`, `ingest_batch()` per [03-write-path.md](03-write-path.md) | P0-3 | Function compiles; retry and out-of-order fixtures pass (the cap-across-archiving fixture moves to P0-5) |
-| P0-5 | Jobs: `archive_sessions`, `rebuild_session_stats`, `cleanup_idempotency`, `reconcile_session_stats` plus `0014_schedule.sql` | P0-4 | Procedures run; the schedule file registers them in staging; cap-across-archiving fixture passes |
-| P0-6 | Test harness: per-file database, N pools, fixture builders, invariant queries | P0-3 | `npm run test:db` runs one trivial test end-to-end |
-| P0-7 | T1–T5 (cap, late archive, cross-midnight dedupe, conflicts, attribution order) | P0-4, P0-6 | All green, 3 consecutive runs, no flakes |
-| P0-8 | T6–T9 (archive race, stats drift, deletion rebuild, kill mid-transaction) | P0-5, P0-7 | All green; I5 and I6 assertions green |
-| P0-9 | Property test: ingest→archive vs load→rebuild byte-identical | P0-8 | 30-minute nightly-budget run, zero drift |
-| P0-10 | Baseline benchmarks: sustained, burst, hot session, WAL, HOT ratio, archive duration; record in `docs/plan/benchmarks/p0.md` | P0-8 | Numbers recorded; chunk interval and pool sizes confirmed or changed |
+| ID    | Task                                                                                                                         | Depends    | Done when                                                                                                |
+| ----- | ---------------------------------------------------------------------------------------------------------------------------- | ---------- | -------------------------------------------------------------------------------------------------------- |
+| P0-1  | Repo scaffold: npm workspaces, TS config, lint/format, `docs/plan/benchmarks/`                                               | —          | `npm ci && npm run lint && npm run typecheck` clean                                                      |
+| P0-2  | Compose: `timescaledb-ha` (pg17) + PgBouncer; healthcheck asserting `timescaledb_toolkit` and a `hyperloglog` round-trip     | P0-1       | `docker compose up -d && npm run db:ping` green; toolkit risk resolved                                   |
+| P0-3  | Migrations `0001`–`0008`: extensions, tenancy, events, dedupe, guard, active, history+view, stats                            | P0-2       | Migrations apply cleanly from empty DB; second run is a no-op                                            |
+| P0-4  | `app_tenant()`, `parse_batch()`, `ingest_batch()` per [03-write-path.md](03-write-path.md)                                   | P0-3       | Function compiles; retry and out-of-order fixtures pass (the cap-across-archiving fixture moves to P0-5) |
+| P0-5  | Jobs: `archive_sessions`, `rebuild_session_stats`, `cleanup_idempotency`, `reconcile_session_stats` plus `0014_schedule.sql` | P0-4       | Procedures run; the schedule file registers them in staging; cap-across-archiving fixture passes         |
+| P0-6  | Test harness: per-file database, N pools, fixture builders, invariant queries                                                | P0-3       | `npm run test:db` runs one trivial test end-to-end                                                       |
+| P0-7  | T1–T5 (cap, late archive, cross-midnight dedupe, conflicts, attribution order)                                               | P0-4, P0-6 | All green, 3 consecutive runs, no flakes                                                                 |
+| P0-8  | T6–T9 (archive race, stats drift, deletion rebuild, kill mid-transaction)                                                    | P0-5, P0-7 | All green; I5 and I6 assertions green                                                                    |
+| P0-9  | Property test: ingest→archive vs load→rebuild byte-identical                                                                 | P0-8       | 30-minute nightly-budget run, zero drift                                                                 |
+| P0-10 | Baseline benchmarks: sustained, burst, hot session, WAL, HOT ratio, archive duration; record in `docs/plan/benchmarks/p0.md` | P0-8       | Numbers recorded; chunk interval and pool sizes confirmed or changed                                     |
 
 **G0 exit criteria (all must hold):**
 
@@ -87,14 +87,14 @@ payload valid, and dashboards over server events (P3).
 
 ## P1 — Ingest API + minimal web SDK
 
-| ID | Task | Depends | Done when |
-| --- | --- | --- | --- |
-| P1-1 | `packages/shared`: contract schemas, category map, canonical JSON, `payloadHash` | G0 | Unit tests, including key-order independence |
-| P1-2 | Ingest API skeleton: Express app, key auth, `/healthz`, `/readyz`, `/metrics` | G0 | Auth and health verified with supertest |
-| P1-3 | Validation, clock-skew correction, classification, in-batch dedupe | P1-1, P1-2 | Rejection reasons cover the full enum; 400 vs 200 behaviour correct |
-| P1-4 | Buffer + flush + outcome assembly (one in-flight call, adaptive idle flush, 503 on overflow) | P1-3 | Buffering tests with fake timers; "every ID in exactly one list" property |
-| P1-5 | Minimal web SDK: `init`, `track`, `identify`, session record + Web Lock, plain fetch | P1-1 | Events visible end-to-end in SQL in the demo page |
-| P1-6 | Demo harness: static page + Compose profile + seeded tenant/key | P1-4, P1-5 | `npm run demo` shows events and sessions in SQL |
+| ID   | Task                                                                                         | Depends    | Done when                                                                 |
+| ---- | -------------------------------------------------------------------------------------------- | ---------- | ------------------------------------------------------------------------- |
+| P1-1 | `packages/shared`: contract schemas, category map, canonical JSON, `payloadHash`             | G0         | Unit tests, including key-order independence                              |
+| P1-2 | Ingest API skeleton: Express app, key auth, `/healthz`, `/readyz`, `/metrics`                | G0         | Auth and health verified with supertest                                   |
+| P1-3 | Validation, clock-skew correction, classification, in-batch dedupe                           | P1-1, P1-2 | Rejection reasons cover the full enum; 400 vs 200 behaviour correct       |
+| P1-4 | Buffer + flush + outcome assembly (one in-flight call, adaptive idle flush, 503 on overflow) | P1-3       | Buffering tests with fake timers; "every ID in exactly one list" property |
+| P1-5 | Minimal web SDK: `init`, `track`, `identify`, session record + Web Lock, plain fetch         | P1-1       | Events visible end-to-end in SQL in the demo page                         |
+| P1-6 | Demo harness: static page + Compose profile + seeded tenant/key                              | P1-4, P1-5 | `npm run demo` shows events and sessions in SQL                           |
 
 **G1:** end-to-end events and sessions visible in SQL; per-event outcome contract
 honoured; no acknowledged batch lost on a forced 503.
@@ -103,14 +103,14 @@ honoured; no acknowledged batch lost on a forced 503.
 
 ## P2 — Durable clients
 
-| ID | Task | Depends | Done when |
-| --- | --- | --- | --- |
-| P2-1 | Web durable queue (localStorage + IndexedDB mirror), quota handling, unload flush | G1 | Overflow and unload cases from the conformance suite |
-| P2-2 | Web retry matrix (401/403, 413, 429, 5xx, network), backoff with jitter | P1-5, P2-1 | All rows of the contract table tested |
-| P2-3 | Web multi-tab sharing and no-Web-Locks fallback | P2-1 | Two-context test: no duplicate time/seq |
-| P2-4 | RN SDK: MMKV queue, state machine, generation token, deep links, background flush | G1 | Conformance suite green on RN |
-| P2-5 | RN fixes: size-triggered flush, persisted `identify`, `sdk_dropped` without a session, persisted deep-link expiry | P2-4 | Deviations D10 and D16 have tests |
-| P2-6 | T10: shutdown mid-flight, re-init, one invalid event in a batch | P2-4 | Counts identical before/after |
+| ID   | Task                                                                                                              | Depends    | Done when                                            |
+| ---- | ----------------------------------------------------------------------------------------------------------------- | ---------- | ---------------------------------------------------- |
+| P2-1 | Web durable queue (localStorage + IndexedDB mirror), quota handling, unload flush                                 | G1         | Overflow and unload cases from the conformance suite |
+| P2-2 | Web retry matrix (401/403, 413, 429, 5xx, network), backoff with jitter                                           | P1-5, P2-1 | All rows of the contract table tested                |
+| P2-3 | Web multi-tab sharing and no-Web-Locks fallback                                                                   | P2-1       | Two-context test: no duplicate time/seq              |
+| P2-4 | RN SDK: MMKV queue, state machine, generation token, deep links, background flush                                 | G1         | Conformance suite green on RN                        |
+| P2-5 | RN fixes: size-triggered flush, persisted `identify`, `sdk_dropped` without a session, persisted deep-link expiry | P2-4       | Deviations D10 and D16 have tests                    |
+| P2-6 | T10: shutdown mid-flight, re-init, one invalid event in a batch                                                   | P2-4       | Counts identical before/after                        |
 
 **G2:** replayed batches after an app kill and mid-batch invalid events produce identical
 session counts; nothing acknowledged is lost.
@@ -119,14 +119,14 @@ session counts; nothing acknowledged is lost.
 
 ## P3 — Rollups and dashboards
 
-| ID | Task | Depends | Done when |
-| --- | --- | --- | --- |
-| P3-1 | `events_15m`, `identity_15m` CAGGs + refresh policies + backfill + `materialized_only=false` | G2 | Refresh under 5 min; toolkit HLL works in the CAGG on the pinned version |
-| P3-2 | `session_stats_daily`, `identity_daily`, `rollup_daily` (days 2–4, three nights) | P3-1 | Partial local days never written; UTC+5:30 and UTC+5:45 correct |
-| P3-3 | Dashboard API: hourly, daily, live endpoints with `tenant_settings.tz` | P3-1 | Matches the blueprint's example output shape |
-| P3-4 | Drill-down endpoints: replay, entry pages, funnels with `(time, seq, event_id)` ordering | P3-3 | Funnel tie-break case from the PDF passes |
-| P3-5 | Reconcile + retention verification (90 d / 5 y tiers) | P3-2 | Nightly reconcile zero drift; retention drops whole chunks |
-| P3-6 | Dashboard performance pass | P3-4 | p95 under 500 ms with synthetic peak ingest |
+| ID   | Task                                                                                         | Depends | Done when                                                                |
+| ---- | -------------------------------------------------------------------------------------------- | ------- | ------------------------------------------------------------------------ |
+| P3-1 | `events_15m`, `identity_15m` CAGGs + refresh policies + backfill + `materialized_only=false` | G2      | Refresh under 5 min; toolkit HLL works in the CAGG on the pinned version |
+| P3-2 | `session_stats_daily`, `identity_daily`, `rollup_daily` (days 2–4, three nights)             | P3-1    | Partial local days never written; UTC+5:30 and UTC+5:45 correct          |
+| P3-3 | Dashboard API: hourly, daily, live endpoints with `tenant_settings.tz`                       | P3-1    | Matches the blueprint's example output shape                             |
+| P3-4 | Drill-down endpoints: replay, entry pages, funnels with `(time, seq, event_id)` ordering     | P3-3    | Funnel tie-break case from the PDF passes                                |
+| P3-5 | Reconcile + retention verification (90 d / 5 y tiers)                                        | P3-2    | Nightly reconcile zero drift; retention drops whole chunks               |
+| P3-6 | Dashboard performance pass                                                                   | P3-4    | p95 under 500 ms with synthetic peak ingest                              |
 
 **G3:** dashboards read only rollups + live slice; bounce rate non-zero and plausible;
 approximate labels applied to HLL metrics.
@@ -135,16 +135,16 @@ approximate labels applied to HLL metrics.
 
 ## P4 — Production hardening
 
-| ID | Task | Depends | Done when |
-| --- | --- | --- | --- |
-| P4-1 | Roles and RLS: enable/force, `app_tenant()` policies with `WITH CHECK`, `security_invoker` view | G3 | I9 green from `app_dashboard`; `app_ingest` holds no table grants at all |
-| P4-2 | Cross-tenant automated test wired into CI | P4-1 | Build fails if isolation regresses |
-| P4-3 | Abuse protection: limits, rate limits, key rotation, cardinality alerts | P4-1 | Documented limits enforced with tests |
-| P4-4 | Synchronous standby + Patroni-style failover + fencing | G3 | T11 passes; RPO 0 measured |
-| P4-5 | LB with consistent hash on `anon_id` | P4-4 | Same visitor lands on one instance; lock waits drop |
-| P4-6 | Load test at 2x peak, 1 hour | P4-3, P4-5 | p95 flush under 200 ms; error rate under 0.5% |
-| P4-7 | Alerts, dashboards, runbooks (5 files), on-call checklist | P4-6 | Every alert has a runbook link and a trigger test |
-| P4-8 | Deletion workflow end-to-end incl. HMAC option and legal sign-off note | P4-2, P3-5 | T8 plus a full seven-step dry run recorded |
+| ID   | Task                                                                                            | Depends    | Done when                                                                |
+| ---- | ----------------------------------------------------------------------------------------------- | ---------- | ------------------------------------------------------------------------ |
+| P4-1 | Roles and RLS: enable/force, `app_tenant()` policies with `WITH CHECK`, `security_invoker` view | G3         | I9 green from `app_dashboard`; `app_ingest` holds no table grants at all |
+| P4-2 | Cross-tenant automated test wired into CI                                                       | P4-1       | Build fails if isolation regresses                                       |
+| P4-3 | Abuse protection: limits, rate limits, key rotation, cardinality alerts                         | P4-1       | Documented limits enforced with tests                                    |
+| P4-4 | Synchronous standby + Patroni-style failover + fencing                                          | G3         | T11 passes; RPO 0 measured                                               |
+| P4-5 | LB with consistent hash on `anon_id`                                                            | P4-4       | Same visitor lands on one instance; lock waits drop                      |
+| P4-6 | Load test at 2x peak, 1 hour                                                                    | P4-3, P4-5 | p95 flush under 200 ms; error rate under 0.5%                            |
+| P4-7 | Alerts, dashboards, runbooks (5 files), on-call checklist                                       | P4-6       | Every alert has a runbook link and a trigger test                        |
+| P4-8 | Deletion workflow end-to-end incl. HMAC option and legal sign-off note                          | P4-2, P3-5 | T8 plus a full seven-step dry run recorded                               |
 
 **G4:** T11 green, zero cross-tenant reads, 2x peak sustained, runbooks and deletion
 workflow reviewed.
@@ -159,14 +159,14 @@ even though the IDs stay stable.
 Each item is its own decision with a stated trigger from
 [07-operations.md](07-operations.md#scaling-path-p5-each-item-gated-on-a-trigger).
 
-| ID | Item | Trigger |
-| --- | --- | --- |
+| ID   | Item                            | Trigger                               |
+| ---- | ------------------------------- | ------------------------------------- |
 | P5-1 | Vertical scale / smaller chunks | Newest chunk no longer fits in memory |
-| P5-2 | Read replica for dashboards | Query competition with ingest |
-| P5-3 | Per-tenant instance | One tenant dominates |
-| P5-4 | Dedupe generation tables | > ~1,500 events/s or size dominates |
-| P5-5 | Durable queue (`pgmq`) | Multiple consumers / outage buffering |
-| P5-6 | Column store for raw events | Billion-row ad-hoc scans |
+| P5-2 | Read replica for dashboards     | Query competition with ingest         |
+| P5-3 | Per-tenant instance             | One tenant dominates                  |
+| P5-4 | Dedupe generation tables        | > ~1,500 events/s or size dominates   |
+| P5-5 | Durable queue (`pgmq`)          | Multiple consumers / outage buffering |
+| P5-6 | Column store for raw events     | Billion-row ad-hoc scans              |
 
 ---
 

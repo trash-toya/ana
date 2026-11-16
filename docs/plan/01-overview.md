@@ -9,18 +9,18 @@ applies identity, deduplication, the hard session cap and all writes in a single
 transaction, and dashboards read pre-aggregated rollups plus a small live slice.
 
 Delivery contract: **at-least-once from the SDK, exactly-once effect in the database**
-for events the SDK held durably, within 24 hours. Explicitly *not* suitable for billing
+for events the SDK held durably, within 24 hours. Explicitly _not_ suitable for billing
 or audit events.
 
 ## Non-goals (deliberate, per blueprint section 1)
 
-| Not built | Why it is safe | Reconsider when |
-| --- | --- | --- |
-| Kafka / Redpanda | Ingest buffer holds only unacknowledged events; retries are idempotent | Multiple independent consumers, or ingest must survive long DB outages |
-| Redis session cache | `sessions_active` is ~40–50 minutes of sessions; upserts are cheap | Sub-millisecond session lookups become a product requirement |
-| Server-side session timers | Expiry is derived from `last_seen_at`; archiving is housekeeping | "Session ended" webhooks are required |
-| Foreign keys on events | Adds a lookup to every insert; append-only data | Never on the hot path — periodic integrity checks instead |
-| Column store (ClickHouse) | Rollups answer dashboard questions | Ad-hoc scans over billions of wide rows dominate |
+| Not built                  | Why it is safe                                                         | Reconsider when                                                        |
+| -------------------------- | ---------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| Kafka / Redpanda           | Ingest buffer holds only unacknowledged events; retries are idempotent | Multiple independent consumers, or ingest must survive long DB outages |
+| Redis session cache        | `sessions_active` is ~40–50 minutes of sessions; upserts are cheap     | Sub-millisecond session lookups become a product requirement           |
+| Server-side session timers | Expiry is derived from `last_seen_at`; archiving is housekeeping       | "Session ended" webhooks are required                                  |
+| Foreign keys on events     | Adds a lookup to every insert; append-only data                        | Never on the hot path — periodic integrity checks instead              |
+| Column store (ClickHouse)  | Rollups answer dashboard questions                                     | Ad-hoc scans over billions of wide rows dominate                       |
 
 ## Hard decisions for this build
 
@@ -73,26 +73,26 @@ or audit events.
 
 ## Phase map
 
-| Phase | Theme | Exit criterion (short form) |
-| --- | --- | --- |
-| **P0** | Database core | T1–T9 green; invariants hold; baseline benchmarks recorded |
-| P1 | Ingest API + minimal web SDK | Events and sessions visible end-to-end in SQL |
-| P2 | Durable clients | T10 green; replay after kill is loss-free and count-identical |
-| P3 | Rollups and dashboards | Dashboards read rollups + live slice only |
-| P4 | Production hardening | T11 green; zero cross-tenant reads; runbook + deletion workflow |
-| P5 | Optional scaling | Only on a stated trigger; separately approved |
+| Phase  | Theme                        | Exit criterion (short form)                                     |
+| ------ | ---------------------------- | --------------------------------------------------------------- |
+| **P0** | Database core                | T1–T9 green; invariants hold; baseline benchmarks recorded      |
+| P1     | Ingest API + minimal web SDK | Events and sessions visible end-to-end in SQL                   |
+| P2     | Durable clients              | T10 green; replay after kill is loss-free and count-identical   |
+| P3     | Rollups and dashboards       | Dashboards read rollups + live slice only                       |
+| P4     | Production hardening         | T11 green; zero cross-tenant reads; runbook + deletion workflow |
+| P5     | Optional scaling             | Only on a stated trigger; separately approved                   |
 
 Detail, task IDs and dependencies: [08-execution.md](08-execution.md).
 
 ## Risks carried into P0
 
-| Risk | Impact | Mitigation / decision point |
-| --- | --- | --- |
-| `hyperloglog` inside a continuous aggregate may need a version-specific combine function | `identity_15m` may not be buildable as a CAGG | P0 spike on the pinned image; fallback is a per-bucket job writing rolled-up HLLs, or a plain table maintained by the ingest path |
-| RLS + compression + CAGGs support varies by Timescale version | Tenant isolation could silently not apply | Verify on the pinned version; fallback is tenant-bound views or security-barrier functions with the same cross-tenant test |
-| Express buffering couples HTTP response latency to the 1-second flush window | p95 latency ~ flush interval under light load | Single in-flight `ingest_batch()` plus an adaptive idle flush (`FLUSH_IDLE_MS`, 50 ms), so a lone event does not wait out the 1 s timer; documented target is p95 under 200 ms at peak, and idle latency is stated as ~50 ms ([04-services.md](04-services.md)) |
-| `event_dedupe` churn at high rates | Bloat, index pressure | Cap-fix keeps dedupe rows == stored events within 3 days; monitor size/age; P5 item 4 (generation tables) if > ~1,500 events/s |
-| Synchronous standby raises commit latency | Ingest p95 | Measure in P0 (WAL MB/s benchmark); it is a hardware decision, not a code decision |
+| Risk                                                                                     | Impact                                        | Mitigation / decision point                                                                                                                                                                                                                                     |
+| ---------------------------------------------------------------------------------------- | --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `hyperloglog` inside a continuous aggregate may need a version-specific combine function | `identity_15m` may not be buildable as a CAGG | P0 spike on the pinned image; fallback is a per-bucket job writing rolled-up HLLs, or a plain table maintained by the ingest path                                                                                                                               |
+| RLS + compression + CAGGs support varies by Timescale version                            | Tenant isolation could silently not apply     | Verify on the pinned version; fallback is tenant-bound views or security-barrier functions with the same cross-tenant test                                                                                                                                      |
+| Express buffering couples HTTP response latency to the 1-second flush window             | p95 latency ~ flush interval under light load | Single in-flight `ingest_batch()` plus an adaptive idle flush (`FLUSH_IDLE_MS`, 50 ms), so a lone event does not wait out the 1 s timer; documented target is p95 under 200 ms at peak, and idle latency is stated as ~50 ms ([04-services.md](04-services.md)) |
+| `event_dedupe` churn at high rates                                                       | Bloat, index pressure                         | Cap-fix keeps dedupe rows == stored events within 3 days; monitor size/age; P5 item 4 (generation tables) if > ~1,500 events/s                                                                                                                                  |
+| Synchronous standby raises commit latency                                                | Ingest p95                                    | Measure in P0 (WAL MB/s benchmark); it is a hardware decision, not a code decision                                                                                                                                                                              |
 
 ## Definition of done (whole project)
 

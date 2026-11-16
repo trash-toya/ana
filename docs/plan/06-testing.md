@@ -6,13 +6,13 @@ work and must pass before P1 starts.
 
 ## Harness
 
-| Piece | Choice | Why |
-| --- | --- | --- |
-| Runner | `node --test` (Node 24) | No extra dependency; same runtime as the services |
-| DB client | `pg` with N independent `Pool`s | Concurrency tests need real connections, not a mock |
-| Environment | Compose from [07-operations.md](07-operations.md) | Every test runs against pinned TimescaleDB |
-| Isolation | One database per test file, created from migrations, dropped after | Parallel CI without cross-talk |
-| Fixtures | `db/test/fixtures/*.sql` + typed TS builders in `packages/shared/test` | Deterministic tenants, sessions, events |
+| Piece         | Choice                                                                                                                                                                                                                                                                                          | Why                                                  |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| Runner        | `node --test` (Node 24)                                                                                                                                                                                                                                                                         | No extra dependency; same runtime as the services    |
+| DB client     | `pg` with N independent `Pool`s                                                                                                                                                                                                                                                                 | Concurrency tests need real connections, not a mock  |
+| Environment   | Compose from [07-operations.md](07-operations.md)                                                                                                                                                                                                                                               | Every test runs against pinned TimescaleDB           |
+| Isolation     | One database per test file, created from migrations, dropped after                                                                                                                                                                                                                              | Parallel CI without cross-talk                       |
+| Fixtures      | `db/test/fixtures/*.sql` + typed TS builders in `packages/shared/test`                                                                                                                                                                                                                          | Deterministic tenants, sessions, events              |
 | Clock control | `SET`-based fake "now" is not possible for `now()`. Tests pre-create `session_guard` rows with the desired `home_day`, pass explicit event `time`s, and `UPDATE` `touch_bucket`/`created_at`/`received_at` where a job must see age; `ingest_batch()` overwrites `home_day` only for new guards | Avoids flakiness without a test-only clock parameter |
 
 `db/test/README.md` documents how to run: `npm run test:db` (Compose up → migrate → run).
@@ -29,19 +29,19 @@ fully hermetic — no background job mutates state.
 Each test runs many workers in parallel, then asserts the invariants in section
 [02-data-model.md](02-data-model.md).
 
-| # | Scenario | Expected result | Phase |
-| --- | --- | --- | --- |
-| T1 | 20 workers create the same new session at once, 500 distinct events each (10,000 total) | Exactly 5,000 stored; `guard.total_events = 5000`; other 5,000 `session_capped`; one session row; **zero dedupe rows for capped events** (I6) | P0 |
-| T2 | Fill to 4,900, force archiving, send 200 late events | 100 stored; one history row with `total_events = 5000`; stats session count unchanged; duration delta exact | P0 |
-| T3 | 10 workers send the same 500 events, repeating across a midnight boundary (clock faked by shifting `home_day`/`received_at`) | Each event stored once; no duplicates | P0 |
-| T4 | Same `event_id` twice in one request with different payloads; and across two requests | Within one request the API keeps the first by request order; across requests the first commit wins. The other is `conflicting_duplicate`; conflict counter incremented | P0 |
-| T5 | Three batches with different `user_id`, `entry_url`, campaign data, in all six arrival orders | Identical final attribution in every order | P0 |
-| T6 | Continuous ingest on many sessions while `archive_sessions` runs every few seconds | No lost events; no session archived while being written; no session twice in history | P0 |
-| T7 | Random late partials merged into history | `session_stats_15m` equals a full rebuild: zero drift on **every** column | P0 |
-| T8 | Delete a tenant's sessions, then rebuild the range | No stale bucket; zero sessions for the tenant in the range | P0 |
-| T9 | Terminate the backend mid-transaction (`pg_terminate_backend`), repeatedly, at every statement boundary | No partial effects: events, dedupe, guard and session agree | P0 |
-| T10 | RN SDK: `shutdown()` with a request in flight then `init()`; batch with one invalid event | No mutation after shutdown; valid events stored and removed; nothing lost | P2 |
-| T11 | Failover drill under load | No acknowledged batch lost; jobs resume; measured RPO/RTO within targets | P4 |
+| #   | Scenario                                                                                                                     | Expected result                                                                                                                                                        | Phase |
+| --- | ---------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- |
+| T1  | 20 workers create the same new session at once, 500 distinct events each (10,000 total)                                      | Exactly 5,000 stored; `guard.total_events = 5000`; other 5,000 `session_capped`; one session row; **zero dedupe rows for capped events** (I6)                          | P0    |
+| T2  | Fill to 4,900, force archiving, send 200 late events                                                                         | 100 stored; one history row with `total_events = 5000`; stats session count unchanged; duration delta exact                                                            | P0    |
+| T3  | 10 workers send the same 500 events, repeating across a midnight boundary (clock faked by shifting `home_day`/`received_at`) | Each event stored once; no duplicates                                                                                                                                  | P0    |
+| T4  | Same `event_id` twice in one request with different payloads; and across two requests                                        | Within one request the API keeps the first by request order; across requests the first commit wins. The other is `conflicting_duplicate`; conflict counter incremented | P0    |
+| T5  | Three batches with different `user_id`, `entry_url`, campaign data, in all six arrival orders                                | Identical final attribution in every order                                                                                                                             | P0    |
+| T6  | Continuous ingest on many sessions while `archive_sessions` runs every few seconds                                           | No lost events; no session archived while being written; no session twice in history                                                                                   | P0    |
+| T7  | Random late partials merged into history                                                                                     | `session_stats_15m` equals a full rebuild: zero drift on **every** column                                                                                              | P0    |
+| T8  | Delete a tenant's sessions, then rebuild the range                                                                           | No stale bucket; zero sessions for the tenant in the range                                                                                                             | P0    |
+| T9  | Terminate the backend mid-transaction (`pg_terminate_backend`), repeatedly, at every statement boundary                      | No partial effects: events, dedupe, guard and session agree                                                                                                            | P0    |
+| T10 | RN SDK: `shutdown()` with a request in flight then `init()`; batch with one invalid event                                    | No mutation after shutdown; valid events stored and removed; nothing lost                                                                                              | P2    |
+| T11 | Failover drill under load                                                                                                    | No acknowledged batch lost; jobs resume; measured RPO/RTO within targets                                                                                               | P4    |
 
 ### T1 detail (the test that proves the cap fix)
 
@@ -115,12 +115,12 @@ regressions in the merge logic:
 
 ## API and SDK tests
 
-| Layer | Approach |
-| --- | --- |
-| Ingest API | `supertest` against the Express app with a real DB; assert per-event outcomes, 400/401/413/429/503 paths, `Retry-After`, and the "every ID in exactly one list" property |
-| Buffering | Fake timers; assert one `ingest_batch()` per flush, no stacked flushes, 503 on buffer overflow |
-| Dashboard API | Two tenants; assert zero cross-tenant rows with `app_dashboard` (I9) and that queries never touch raw `events` for headline metrics |
-| SDKs | The shared conformance suite in [05-sdks.md](05-sdks.md) plus T10 for RN |
+| Layer         | Approach                                                                                                                                                                 |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Ingest API    | `supertest` against the Express app with a real DB; assert per-event outcomes, 400/401/413/429/503 paths, `Retry-After`, and the "every ID in exactly one list" property |
+| Buffering     | Fake timers; assert one `ingest_batch()` per flush, no stacked flushes, 503 on buffer overflow                                                                           |
+| Dashboard API | Two tenants; assert zero cross-tenant rows with `app_dashboard` (I9) and that queries never touch raw `events` for headline metrics                                      |
+| SDKs          | The shared conformance suite in [05-sdks.md](05-sdks.md) plus T10 for RN                                                                                                 |
 
 ## CI
 
@@ -134,17 +134,17 @@ lint → typecheck → unit → db:migrate → T1–T9 → invariants → proper
 
 ## Load tests (P4, targets from blueprint section 10)
 
-| Test | Target |
-| --- | --- |
-| Sustained | 2x expected peak for 1 hour |
-| Burst | 5x peak for 1 minute, p95 flush under 200 ms |
-| One hot session | Many writers; lock wait stays small with sticky routing |
-| Dedupe churn | Oldest row < 3.5 days and row count within ±10% over an hour at steady rate |
-| WAL with sync standby | Within standby headroom; commit p95 acceptable |
-| HOT ratio | > 95% on `sessions_active` and `session_guard` |
-| Archive duration | Oldest `sessions_active` row < 100 min (2× the window) |
-| CAGG refresh | Well under the 5-minute schedule |
-| Dashboard p95 | Under 500 ms with ingest at peak |
+| Test                  | Target                                                                      |
+| --------------------- | --------------------------------------------------------------------------- |
+| Sustained             | 2x expected peak for 1 hour                                                 |
+| Burst                 | 5x peak for 1 minute, p95 flush under 200 ms                                |
+| One hot session       | Many writers; lock wait stays small with sticky routing                     |
+| Dedupe churn          | Oldest row < 3.5 days and row count within ±10% over an hour at steady rate |
+| WAL with sync standby | Within standby headroom; commit p95 acceptable                              |
+| HOT ratio             | > 95% on `sessions_active` and `session_guard`                              |
+| Archive duration      | Oldest `sessions_active` row < 100 min (2× the window)                      |
+| CAGG refresh          | Well under the 5-minute schedule                                            |
+| Dashboard p95         | Under 500 ms with ingest at peak                                            |
 
 Results are recorded in `docs/plan/benchmarks/` (new file per run) so sizing claims stay
 honest — the blueprint's capacity numbers are targets, not measurements.

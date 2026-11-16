@@ -10,7 +10,7 @@ ensure guard rows  →  lock guard rows (sorted)  →  classify vs dedupe  →  
 ```
 
 Step 5 is where we differ from the PDF: the PDF claims dedupe rows for the whole batch
-*before* the cap, so a capped event leaves a dedupe row behind, and its retry is
+_before_ the cap, so a capped event leaves a dedupe row behind, and its retry is
 reported as an accepted duplicate while no event row exists. That is silent data loss
 ([DEVIATIONS.md](DEVIATIONS.md) D1). Claiming only for accepted events makes
 `event_dedupe` a ledger of stored events, so "duplicate" always means "already stored".
@@ -161,15 +161,15 @@ END $$;
 
 ### Why this is correct
 
-| Property | Argument |
-| --- | --- |
-| Cap is hard | Step 1 creates the guard, step 2 locks it, so concurrent creators of a new session serialize on one row and each reads the true `total_events`. Archived sessions keep their guard for 3 days, so the cap survives archiving |
-| No deadlock | Every writer takes guard locks first, sorted by `(tenant_id, session_id)`, and only then touches `event_dedupe`, `events`, `sessions_active` |
-| Duplicate never consumes quota | `cand` excludes everything already in `event_dedupe`, and quota is computed from `cand` only |
-| Rejected event stays rejected | capped/conflicting events never reach `event_dedupe`, so a retry is evaluated again and rejected again with the same reason |
-| No double count | counters (`guard.total_events`, `sessions_active.*`) are derived from `stored`, which is `claimed` ∩ `accepted` |
+| Property                          | Argument                                                                                                                                                                                                                                                                         |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Cap is hard                       | Step 1 creates the guard, step 2 locks it, so concurrent creators of a new session serialize on one row and each reads the true `total_events`. Archived sessions keep their guard for 3 days, so the cap survives archiving                                                     |
+| No deadlock                       | Every writer takes guard locks first, sorted by `(tenant_id, session_id)`, and only then touches `event_dedupe`, `events`, `sessions_active`                                                                                                                                     |
+| Duplicate never consumes quota    | `cand` excludes everything already in `event_dedupe`, and quota is computed from `cand` only                                                                                                                                                                                     |
+| Rejected event stays rejected     | capped/conflicting events never reach `event_dedupe`, so a retry is evaluated again and rejected again with the same reason                                                                                                                                                      |
+| No double count                   | counters (`guard.total_events`, `sessions_active.*`) are derived from `stored`, which is `claimed` ∩ `accepted`                                                                                                                                                                  |
 | Every submitted ID has an outcome | `stored` + `dups` + `lost` + `capped` + `conflicts` cover the batch; `lost` is a cross-session claim race, which is an accepted duplicate because the winning transaction stored the event. The API also maps any unlisted submitted ID to `accepted` as a defensive second gate |
-| Retry is free | a retry lands in `dups` and is reported `accepted` — but only because the event really is stored |
+| Retry is free                     | a retry lands in `dups` and is reported `accepted` — but only because the event really is stored                                                                                                                                                                                 |
 
 ### `parse_batch`
 
@@ -183,13 +183,13 @@ in one place.
 
 ### Outcome mapping (API side)
 
-| Function output | Response | SDK action | Counter |
-| --- | --- | --- | --- |
-| `stored` | `accepted` | remove from queue | `ingest_stored` |
-| `dups` | `accepted` (idempotent; includes events that lost a cross-session claim race) | remove from queue | `ingest_duplicate` |
-| `capped` | `rejected: session_capped` | remove from queue, permanent | `ingest_capped` |
-| `conflicts` | `rejected: conflicting_duplicate` | remove from queue, permanent | `dedupe_conflict` |
-| validation failure (never sent) | `rejected: <reason>` | remove from queue, permanent | `ingest_rejected{reason}` |
+| Function output                 | Response                                                                      | SDK action                   | Counter                   |
+| ------------------------------- | ----------------------------------------------------------------------------- | ---------------------------- | ------------------------- |
+| `stored`                        | `accepted`                                                                    | remove from queue            | `ingest_stored`           |
+| `dups`                          | `accepted` (idempotent; includes events that lost a cross-session claim race) | remove from queue            | `ingest_duplicate`        |
+| `capped`                        | `rejected: session_capped`                                                    | remove from queue, permanent | `ingest_capped`           |
+| `conflicts`                     | `rejected: conflicting_duplicate`                                             | remove from queue, permanent | `dedupe_conflict`         |
+| validation failure (never sent) | `rejected: <reason>`                                                          | remove from queue, permanent | `ingest_rejected{reason}` |
 
 ## Jobs
 
@@ -199,13 +199,13 @@ idempotent. The `add_job` calls live in `0014_schedule.sql`, which is applied as
 `app_jobs`; migrations `0001`–`0013` only define the procedures, so test databases start
 with no custom jobs scheduled.
 
-| Job | Interval | Bound | Idempotency argument |
-| --- | --- | --- | --- |
-| `archive_sessions` | 1 min | 50,000 sessions | Delete-and-merge in one statement; `FOR UPDATE SKIP LOCKED` + re-checked `touch_bucket`; selection ordered by `touch_bucket, tenant_id, session_id` for reproducible runs; candidates selected by `ctid` (a `USING` self-join lets the planner re-run the locking scan per row — measured 34 s for 7,000 rows vs 0.13 s with the ctid form; see `benchmarks/p0.md`) |
-| `rebuild_session_stats` | on demand | whole range | Deletes the range first, then recomputes from `sessions_history` |
-| `cleanup_idempotency` | 1 min | 200k dedupe, 100k guard | Deletes by age index only |
-| `reconcile_session_stats` | 1 day | 26–50 h ago | Compares before/after; logs drift, never "fixes" silently |
-| `rollup_daily` (P3) | 1 day | days 2–4 old | Upsert by local day, rewritten three nights |
+| Job                       | Interval  | Bound                   | Idempotency argument                                                                                                                                                                                                                                                                                                                                                |
+| ------------------------- | --------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `archive_sessions`        | 1 min     | 50,000 sessions         | Delete-and-merge in one statement; `FOR UPDATE SKIP LOCKED` + re-checked `touch_bucket`; selection ordered by `touch_bucket, tenant_id, session_id` for reproducible runs; candidates selected by `ctid` (a `USING` self-join lets the planner re-run the locking scan per row — measured 34 s for 7,000 rows vs 0.13 s with the ctid form; see `benchmarks/p0.md`) |
+| `rebuild_session_stats`   | on demand | whole range             | Deletes the range first, then recomputes from `sessions_history`                                                                                                                                                                                                                                                                                                    |
+| `cleanup_idempotency`     | 1 min     | 200k dedupe, 100k guard | Deletes by age index only                                                                                                                                                                                                                                                                                                                                           |
+| `reconcile_session_stats` | 1 day     | 26–50 h ago             | Compares before/after; logs drift, never "fixes" silently                                                                                                                                                                                                                                                                                                           |
+| `rollup_daily` (P3)       | 1 day     | days 2–4 old            | Upsert by local day, rewritten three nights                                                                                                                                                                                                                                                                                                                         |
 
 ### `archive_sessions`
 
@@ -241,14 +241,14 @@ not a maintenance step ([DEVIATIONS.md](DEVIATIONS.md) D12).
 
 ## Failure semantics
 
-| Event | What the client sees | What the database shows |
-| --- | --- | --- |
-| Transaction rolls back | 503 for every event in the batch; SDK keeps all | Nothing (atomic) |
-| Crash mid-transaction | Same as rollback | Nothing; connection dies, transaction aborts |
-| Concurrent identical retries | Both get `accepted`; one is `dups` | One event row |
-| Concurrent conflicting writes to one event_id | The first commit wins; the other is `conflicting_duplicate` (within one request the API keeps the first by request order; `ord` is the SQL fallback) | One event row, one hash |
-| Cap reached mid-batch | Overflow events `session_capped` | `guard.total_events = 5000` exactly |
-| Late event for archived session | `accepted` | Partial active row + guard; next archive merges with exact deltas |
+| Event                                         | What the client sees                                                                                                                                 | What the database shows                                           |
+| --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| Transaction rolls back                        | 503 for every event in the batch; SDK keeps all                                                                                                      | Nothing (atomic)                                                  |
+| Crash mid-transaction                         | Same as rollback                                                                                                                                     | Nothing; connection dies, transaction aborts                      |
+| Concurrent identical retries                  | Both get `accepted`; one is `dups`                                                                                                                   | One event row                                                     |
+| Concurrent conflicting writes to one event_id | The first commit wins; the other is `conflicting_duplicate` (within one request the API keeps the first by request order; `ord` is the SQL fallback) | One event row, one hash                                           |
+| Cap reached mid-batch                         | Overflow events `session_capped`                                                                                                                     | `guard.total_events = 5000` exactly                               |
+| Late event for archived session               | `accepted`                                                                                                                                           | Partial active row + guard; next archive merges with exact deltas |
 
 ## Deliverables in P0
 

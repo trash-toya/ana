@@ -14,16 +14,16 @@ services/dashboard → GET /v1/...       (read path)
 
 ## Shared package (`packages/shared`)
 
-| Export | Purpose |
-| --- | --- |
-| `EventSchema` (zod) | Single definition of the wire contract for the API; SDKs consume the generated types, and the web bundle uses a tiny generated validator rather than zod |
-| `CATEGORY` map | `engagement \| lifecycle \| system` per reserved name; everything else is `e` |
-| `canonicalJson(value)` | Deterministic serialisation: sorted keys, no whitespace, undefined dropped |
-| `payloadHash(event)` | `sha256(canonicalJson({session_id, name, url, props, time, seq}))` using the **producer's original** time, computed before any correction. `user_id`, `anon_id`, `source` and `cat` are deliberately excluded, so a retry after `identify()` keeps the stored event's first-wins attribution, and re-delivering the same event from another SDK does not become a conflict; state this in the SDK docs |
-| `SCHEMA_VERSION` | `1`; accept current and previous |
-| `rejectReason` enum | `invalid_uuid, missing_anon_id, too_old, too_new, bad_name, props_too_large, schema_unsupported, session_capped, conflicting_duplicate` |
-| `SOURCES` / `SOURCES_BY_KEY_KIND` | `client \| server \| webhook` per event, and the sources each API-key kind may submit ([DEVIATIONS.md](DEVIATIONS.md) D28) |
-| `SessionStartRequestSchema` / `SessionValidateRequestSchema` | Wire contract for bootstrap/resume and context validation ([DEVIATIONS.md](DEVIATIONS.md) D30) |
+| Export                                                       | Purpose                                                                                                                                                                                                                                                                                                                                                                                                |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `EventSchema` (zod)                                          | Single definition of the wire contract for the API; SDKs consume the generated types, and the web bundle uses a tiny generated validator rather than zod                                                                                                                                                                                                                                               |
+| `CATEGORY` map                                               | `engagement \| lifecycle \| system` per reserved name; everything else is `e`                                                                                                                                                                                                                                                                                                                          |
+| `canonicalJson(value)`                                       | Deterministic serialisation: sorted keys, no whitespace, undefined dropped                                                                                                                                                                                                                                                                                                                             |
+| `payloadHash(event)`                                         | `sha256(canonicalJson({session_id, name, url, props, time, seq}))` using the **producer's original** time, computed before any correction. `user_id`, `anon_id`, `source` and `cat` are deliberately excluded, so a retry after `identify()` keeps the stored event's first-wins attribution, and re-delivering the same event from another SDK does not become a conflict; state this in the SDK docs |
+| `SCHEMA_VERSION`                                             | `1`; accept current and previous                                                                                                                                                                                                                                                                                                                                                                       |
+| `rejectReason` enum                                          | `invalid_uuid, missing_anon_id, too_old, too_new, bad_name, props_too_large, schema_unsupported, session_capped, conflicting_duplicate`                                                                                                                                                                                                                                                                |
+| `SOURCES` / `SOURCES_BY_KEY_KIND`                            | `client \| server \| webhook` per event, and the sources each API-key kind may submit ([DEVIATIONS.md](DEVIATIONS.md) D28)                                                                                                                                                                                                                                                                             |
+| `SessionStartRequestSchema` / `SessionValidateRequestSchema` | Wire contract for bootstrap/resume and context validation ([DEVIATIONS.md](DEVIATIONS.md) D30)                                                                                                                                                                                                                                                                                                         |
 
 `canonicalJson` is non-negotiable: `JSON.stringify` is key-order dependent, so a retry
 built from a re-parsed object would hash differently and be rejected as a conflict
@@ -69,10 +69,10 @@ Bootstrap is a separate operation from ingestion and creates **no analytics rows
 session becomes visible in `sessions_active` only when its first event arrives
 ([DEVIATIONS.md](DEVIATIONS.md) D30). Both routes require a `server` key.
 
-| Method | Path | Body | Response |
-| --- | --- | --- | --- |
-| `POST` | `/v1/sessions` | `{ anon_id?, user_id?, properties? }` | `{ session_id, anon_id, user_id, started_at, last_event_at, expires_at, resumed, emitted_events, properties, context }` |
-| `POST` | `/v1/sessions/validate` | `{ context }` | `{ valid, reason?, session_id?, anon_id?, user_id?, expires_at?, emitted_events?, properties? }` |
+| Method | Path                    | Body                                  | Response                                                                                                                |
+| ------ | ----------------------- | ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `POST` | `/v1/sessions`          | `{ anon_id?, user_id?, properties? }` | `{ session_id, anon_id, user_id, started_at, last_event_at, expires_at, resumed, emitted_events, properties, context }` |
+| `POST` | `/v1/sessions/validate` | `{ context }`                         | `{ valid, reason?, session_id?, anon_id?, user_id?, expires_at?, emitted_events?, properties? }`                        |
 
 - `context` is an opaque HMAC token `v1.<session_id>.<exp_seconds>.<sig>` bound to the
   tenant. A raw session id is a correlation identifier, not a credential; the signature
@@ -106,14 +106,14 @@ Rules that are not optional:
 - Backpressure does not un-buffer: events already in the buffer stay there (dedupe makes
   the client's retry safe) and the request that trips `BUFFER_MAX` gets the 503.
 
-| Rule | Value |
-| --- | --- |
-| Flush trigger | buffer size ≥ 500 events; the 1 s timer is the ceiling; adaptive idle flush (`FLUSH_IDLE_MS`, default 50 ms) when no flush is in flight |
-| Concurrency | At most **one** `ingest_batch()` in flight; the timer does not stack flushes |
-| Idle latency | ~50 ms typically, ≤ ~1 s with a stuck flush. Documented; dashboards tolerate it |
-| Batch mixing | One call may contain several tenants (the definer function writes cross-tenant); tenant comes from each event row. One slow guard or bad row blocks every tenant in that flush — accepted head-of-line risk, measured in P4-6 |
-| Backpressure | If the buffer exceeds `BUFFER_MAX` (default 5,000), respond 503 immediately so SDKs back off |
-| Retry-After | On 503, set `Retry-After: 5` |
+| Rule          | Value                                                                                                                                                                                                                         |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Flush trigger | buffer size ≥ 500 events; the 1 s timer is the ceiling; adaptive idle flush (`FLUSH_IDLE_MS`, default 50 ms) when no flush is in flight                                                                                       |
+| Concurrency   | At most **one** `ingest_batch()` in flight; the timer does not stack flushes                                                                                                                                                  |
+| Idle latency  | ~50 ms typically, ≤ ~1 s with a stuck flush. Documented; dashboards tolerate it                                                                                                                                               |
+| Batch mixing  | One call may contain several tenants (the definer function writes cross-tenant); tenant comes from each event row. One slow guard or bad row blocks every tenant in that flush — accepted head-of-line risk, measured in P4-6 |
+| Backpressure  | If the buffer exceeds `BUFFER_MAX` (default 5,000), respond 503 immediately so SDKs back off                                                                                                                                  |
+| Retry-After   | On 503, set `Retry-After: 5`                                                                                                                                                                                                  |
 
 Per-request outcome assembly: a request's events are matched by `event_id` against
 `stored`, `dups`, `capped`, `conflicts`; anything rejected at validation is merged in and
@@ -123,29 +123,33 @@ cross-session race fix).
 
 ### Endpoints
 
-| Method | Path | Notes |
-| --- | --- | --- |
-| `POST` | `/v1/events` | Contract below |
-| `POST` | `/v1/sessions` | Bootstrap/resume; `server` key only, no analytics rows |
-| `POST` | `/v1/sessions/validate` | Validate a propagated `X-Analytics-Session` context; `server` key only |
-| `GET` | `/healthz` | Liveness, no DB |
-| `GET` | `/readyz` | DB round-trip through PgBouncer |
-| `GET` | `/metrics` | Prometheus text, internal only: private port or IP allow-list, never routed by the public LB |
+| Method | Path                    | Notes                                                                                        |
+| ------ | ----------------------- | -------------------------------------------------------------------------------------------- |
+| `POST` | `/v1/events`            | Contract below                                                                               |
+| `POST` | `/v1/sessions`          | Bootstrap/resume; `server` key only, no analytics rows                                       |
+| `POST` | `/v1/sessions/validate` | Validate a propagated `X-Analytics-Session` context; `server` key only                       |
+| `GET`  | `/healthz`              | Liveness, no DB                                                                              |
+| `GET`  | `/readyz`               | DB round-trip through PgBouncer                                                              |
+| `GET`  | `/metrics`              | Prometheus text, internal only: private port or IP allow-list, never routed by the public LB |
 
 ```jsonc
 // 200
-{ "accepted": ["018f2c…a1", "018f2c…a2"],
-  "rejected": [ { "event_id": "018f2c…a3", "reason": "too_old" },
-                { "event_id": "018f2c…a4", "reason": "session_capped" } ] }
+{
+  "accepted": ["018f2c…a1", "018f2c…a2"],
+  "rejected": [
+    { "event_id": "018f2c…a3", "reason": "too_old" },
+    { "event_id": "018f2c…a4", "reason": "session_capped" },
+  ],
+}
 ```
 
-| Status | Meaning | SDK |
-| --- | --- | --- |
-| 200 | Per-event outcomes (an all-rejected batch is still 200) | Remove IDs in either list |
-| 400 | Malformed (SDK bug) | Drop batch, count `bad_request`, do not loop |
-| 401/403 | Key invalid/revoked; 403 also `source_not_allowed` / `server_key_required` | Keep queue, retry in 10 min; an authenticated producer cannot fix its key kind, so a 403 source violation is permanent |
-| 413 | Body too large | Halve batch, retry; if one event still exceeds 1 MB, reject that event permanently |
-| 429/5xx/network | Transient | Exponential backoff, honour `Retry-After` |
+| Status          | Meaning                                                                    | SDK                                                                                                                    |
+| --------------- | -------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| 200             | Per-event outcomes (an all-rejected batch is still 200)                    | Remove IDs in either list                                                                                              |
+| 400             | Malformed (SDK bug)                                                        | Drop batch, count `bad_request`, do not loop                                                                           |
+| 401/403         | Key invalid/revoked; 403 also `source_not_allowed` / `server_key_required` | Keep queue, retry in 10 min; an authenticated producer cannot fix its key kind, so a 403 source violation is permanent |
+| 413             | Body too large                                                             | Halve batch, retry; if one event still exceeds 1 MB, reject that event permanently                                     |
+| 429/5xx/network | Transient                                                                  | Exponential backoff, honour `Retry-After`                                                                              |
 
 ### Abuse protection (P4, wired as middleware from P1)
 
@@ -171,14 +175,14 @@ runs `SELECT set_config('app.tenant_id', $1, true)` (transaction-local, no strin
 interpolation) inside its transaction. Endpoints map 1:1 to the blueprint's example
 queries so the SQL is reviewable in one place:
 
-| Endpoint | Source | Blueprint example |
-| --- | --- | --- |
-| `GET /v1/sessions/:id/replay` | `sessions` + `events` | Example 1 |
-| `GET /v1/metrics/hourly?from&to` | `session_stats_15m` ∪ live slice | Example 2 |
-| `GET /v1/metrics/daily?from&to&tz` | `session_stats_15m` / `identity_15m`, summed into local days | Example 3 |
-| `GET /v1/entry-pages?from&to` | `sessions` + `events` | Example 4 |
-| `POST /v1/funnels` (steps in body) | `events`, ordered sequence | Example 5 |
-| `GET /v1/live` | `sessions_active` with `touch_bucket` range + 5-minute `last_seen_at`, excluding sessions that already have history | Example 6 |
+| Endpoint                           | Source                                                                                                              | Blueprint example |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ----------------- |
+| `GET /v1/sessions/:id/replay`      | `sessions` + `events`                                                                                               | Example 1         |
+| `GET /v1/metrics/hourly?from&to`   | `session_stats_15m` ∪ live slice                                                                                    | Example 2         |
+| `GET /v1/metrics/daily?from&to&tz` | `session_stats_15m` / `identity_15m`, summed into local days                                                        | Example 3         |
+| `GET /v1/entry-pages?from&to`      | `sessions` + `events`                                                                                               | Example 4         |
+| `POST /v1/funnels` (steps in body) | `events`, ordered sequence                                                                                          | Example 5         |
+| `GET /v1/live`                     | `sessions_active` with `touch_bucket` range + 5-minute `last_seen_at`, excluding sessions that already have history | Example 6         |
 
 Rules that hold for every endpoint:
 
@@ -193,12 +197,12 @@ Rules that hold for every endpoint:
 
 ## Observability
 
-| Layer | Signals |
-| --- | --- |
-| Ingest | buffer depth, flush p95, 5xx rate, rejections by reason, `dedupe_conflict`, `sdk_dropped` totals, in-flight DB calls |
-| DB | commit latency incl. standby, WAL MB/s, lock waits on `session_guard`/`sessions_active`, replication lag |
-| Jobs | `timescaledb_information.job_stats` failures, archive backlog, reconcile drift warnings, dedupe/guard row counts and oldest age |
-| Data quality | events without a guard row, sessions with zero engagement, late-partial rate, dedupe rows without events (I6) |
+| Layer        | Signals                                                                                                                         |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------- |
+| Ingest       | buffer depth, flush p95, 5xx rate, rejections by reason, `dedupe_conflict`, `sdk_dropped` totals, in-flight DB calls            |
+| DB           | commit latency incl. standby, WAL MB/s, lock waits on `session_guard`/`sessions_active`, replication lag                        |
+| Jobs         | `timescaledb_information.job_stats` failures, archive backlog, reconcile drift warnings, dedupe/guard row counts and oldest age |
+| Data quality | events without a guard row, sessions with zero engagement, late-partial rate, dedupe rows without events (I6)                   |
 
 Structured JSON logs with `tenant_id`, `batch_size`, `outcome_counts`, `duration_ms`.
 Trace context propagated from the SDK (`traceparent` is optional in v1; add in P2).

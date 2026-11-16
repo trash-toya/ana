@@ -47,17 +47,26 @@ analytics.track("payment_succeeded", {
 await analytics.flush();
 ```
 
-| Concern         | Behaviour                                                                                                                                                                               |
-| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Bootstrap       | `startSession()` → `POST /v1/sessions`; stores the active session and its `emitted_events`. `validateSession(context)` checks a propagated context                                      |
-| Session binding | `track()` defaults to the active bootstrapped session; `sessionId: null` makes the event sessionless. A session-bound event without an `anonId` is an SDK error before any network call |
-| `session_start` | Emitted automatically once, only when the session has no stored events yet, carrying the bootstrap `properties` as attribution                                                          |
-| `seq`           | Never minted (D31): a backend cannot know the browser's next sequence number in the same session                                                                                        |
-| Event ids       | UUIDv7, with a same-millisecond counter so ids stay in mint order. Pass `eventId` when the producer has its own idempotency key; the DB deduplicates re-delivery                        |
-| Batching        | Up to 500 events and 256 KB per request; `flush()` drains the buffer                                                                                                                    |
-| Retry matrix    | 200 → dequeue accepted ∪ rejected; 400 → drop the batch; 401/403 → retain and stop; 413 → halve; 429 → honour `Retry-After`; 5xx/network → exponential backoff with jitter              |
-| Shutdown        | `shutdown()` stops the timer and performs a final drain; `track()` afterwards throws `closed`                                                                                           |
-| Observability   | `pending()`, `session()`, `authError()`, and an optional structured `logger`                                                                                                            |
+| Concern         | Behaviour                                                                                                                                                                                                                                                                |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Bootstrap       | `startSession()` → `POST /v1/sessions`; stores the active session and its `emitted_events`. `validateSession(context)` checks a propagated context                                                                                                                       |
+| Session binding | `track()` defaults to the active bootstrapped session; `sessionId: null` makes the event sessionless. A session-bound event without an `anonId` is an SDK error before any network call                                                                                  |
+| `session_start` | Emitted automatically once, only when the session has no stored events yet, carrying the bootstrap `properties` as attribution                                                                                                                                           |
+| `seq`           | Never minted (D31): a backend cannot know the browser's next sequence number in the same session                                                                                                                                                                         |
+| Event ids       | UUIDv7, with a same-millisecond counter so ids stay in mint order. Pass `eventId` when the producer has its own idempotency key; the DB deduplicates re-delivery                                                                                                         |
+| Batching        | Up to 500 events and 256 KB per request; `flush()` drains the buffer                                                                                                                                                                                                     |
+| Retry matrix    | 200 → dequeue accepted ∪ rejected; 400 → drop the batch; 401/403 → retain and stop; 413 → halve (a single event that still exceeds the server limit is dropped and counted for `sdk_dropped`); 429 → honour `Retry-After`; 5xx/network → exponential backoff with jitter |
+
+The retry matrix is shared between both SDKs (P2-2): at most **8 attempts per
+`flush()` call** (`attempt >= MAX_FLUSH_ATTEMPTS`), then the queue is left for
+the next call; a 200 that acknowledges nothing is bounded exactly like a
+transient failure. Backoff is **full jitter** — uniform in `[base/2, base)` —
+from a base of 1 s (`retryBaseMs` option; `browser.jitter` overrides the jitter
+source in tests), doubling to a 30 s ceiling; a successful send resets the
+schedule to the base, and a server `Retry-After` overrides the local schedule
+for that one attempt.
+| Shutdown | `shutdown()` stops the timer and performs a final drain; `track()` afterwards throws `closed` |
+| Observability | `pending()`, `session()`, `authError()`, and an optional structured `logger` |
 
 The SDK does not import `@session-analytics/shared` at runtime (types and constants are
 duplicated), so it builds before the shared package and ships with no runtime

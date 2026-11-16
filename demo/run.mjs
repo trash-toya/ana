@@ -1,4 +1,4 @@
-// Demo orchestrator (P1-6): `npm run demo` →
+// Demo orchestrator (P1-6): `pnpm demo` →
 //   1. compose up db + pgbouncer, wait until healthy
 //   2. seed (migrations + demo tenant/key)
 //   3. spawn the ingest API on :3001 (via pgbouncer, like production)

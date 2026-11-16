@@ -72,9 +72,9 @@ export const MAX_PROPS_DEPTH = 2;
 
 const PropLeaf = z.union([z.string(), z.number(), z.boolean(), z.null()]);
 
-const PropValue = z.union([PropLeaf, z.array(PropLeaf), z.record(PropLeaf)]);
+const PropValue = z.union([PropLeaf, z.array(PropLeaf), z.record(z.string(), PropLeaf)]);
 
-export const PropsSchema = z.record(PropValue).superRefine((props, ctx) => {
+export const PropsSchema = z.record(z.string(), PropValue).superRefine((props, ctx) => {
   const keys = Object.keys(props);
   if (keys.length > MAX_PROPS_KEYS) {
     ctx.addIssue({

@@ -16,6 +16,6 @@
     "test": "pnpm build && vitest run test/"
   },
   "dependencies": {
-    "zod": "^3.24.0"
+    "zod": "^4.6.7"
   }
 }

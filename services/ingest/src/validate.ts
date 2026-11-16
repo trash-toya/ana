@@ -386,7 +386,8 @@ function shapeFailure(event: unknown): string | null {
   if (!parsed.success) {
     for (const issue of parsed.error.issues) {
       if (issue.code === "unrecognized_keys") return `unknown field(s): ${issue.message}`;
-      if (issue.path[0] === "time" && issue.code === "invalid_string") {
+      // zod 4: the datetime format failure reports `invalid_format`
+      if (issue.path[0] === "time" && issue.code === "invalid_format") {
         return "field time is not an ISO 8601 timestamp";
       }
     }

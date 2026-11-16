@@ -66,3 +66,33 @@ Anything not listed here is implemented as written in the PDF.
    historical rows NULL forever).~~ Decided in Rev 5 (D32): `received_at` is a first-class
    column from migration `0015`; the table has no production rows yet.
 4. Chunk interval (1 day vs 6 hours) — decided by P0-10 measurements, not by preference.
+
+## Tooling migration (2026-11-16, user-directed)
+
+The build/test toolchain was replaced at the user's request. Choices made on the
+user's behalf ("choose what looks best, document for review later"):
+
+| Choice            | Decision                                                                                                                                                                                                                                                                                                                            |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Package manager   | **pnpm** ("use pnpm always"). `workspace:*` protocol for internal deps, `packageManager` pinned, scripts use `pnpm -r` / `pnpm -F`. Side effect worth knowing: pnpm does not hoist, so `@types/express-serve-static-core` became an explicit devDependency of the ingest service.                                                   |
+| TypeScript        | **^7.0.2** — the latest `typescript` on npm is the native Go compiler (TS 6 is the last JS implementation; 7.1 is still in beta). No tsconfig changes were needed (strict/module/types were already explicit). `typecheck` and all workspace builds pass unchanged; full builds are noticeably faster.                              |
+| Test runner       | **vitest 5** replaces `node:test` for every suite. Imports swapped mechanically (`import { test } from "vitest"`); `node:assert/strict` kept; `t.after` → `onTestFinished`; `t.mock.timers` → `vi.useFakeTimers({ toFake: ["setTimeout", "setInterval"] })`. Root `vitest.config.ts`: forks pool, 30 s timeouts, explicit includes. |
+| Linter            | **oxlint** replaces eslint. `correctness` as errors + `eqeqeq` + `prefer-const` (the old eslint rules). `no-unused-vars` is a **warning**, not an error: the old config had the rule fully off, and turning it into errors breaks the intentional destructuring-omit idiom (`const { session_id, ...rest }`).                       |
+| Formatter         | **oxfmt** replaces prettier (settings migrated: width 90, double quotes, trailing commas, semicolons; lockfiles ignored). A format-once pass reformatted ~70 files — that diff is cosmetic only.                                                                                                                                    |
+| Hooks             | **nano-staged + husky** pre-commit: `oxfmt --write` + `oxlint --fix` on staged js/mjs/ts files.                                                                                                                                                                                                                                     |
+| Source management | **git** initialised with a baseline commit of the pre-migration state, then each concern as its own commit: the P2-2 bugfix, the toolchain migration, the db test date-anchoring, and doc formatting.                                                                                                                               |
+
+Bugs found and fixed during the migration (previously hidden because the new
+`packages/sdk-web/test/retry.test.mjs` could never finish):
+
+1. `selectBatch` compared against the `MAX_EVENTS_PER_REQUEST` **constant** instead of the
+   `maxEvents` parameter, so the 413-halving in the flush loop never shrank the batch, and a
+   single oversize event spun the loop forever. The server SDK's copy was already correct.
+2. The retry-matrix test expectations assumed the queue depth after one `track()` is 1 and
+   the first batch is 2 events; a fresh session actually mints 3 events (session_start,
+   page_view, trigger) and the first attempt is the full queue. Fixed with comments.
+
+Calendar rot in the DB suite (found when T1 started failing for no code reason): invariants
+I3 and I8 have time windows (`created_at − 24 h`, `now() − 3 days`), and T1/T6/T9 hardcoded
+event dates of 2026-11-15, which drift out of those windows as the calendar advances. The
+harness now exports `recentBase()` and all three suites anchor their fixture times to it.

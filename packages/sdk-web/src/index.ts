@@ -220,15 +220,25 @@ export function init(options: InitOptions): AnalyticsSdk {
   }
 
   function startInteractionTracking(): void {
-    if (typeof document === "undefined") return;
-    const mark = () => (state.lastInteraction = browser.now());
-    const events = ["pointerdown", "keydown", "scroll"] as const;
-    for (const type of events) {
-      document.addEventListener(type, mark, { passive: true, capture: true });
-      state.interactionListeners.push(() =>
-        document.removeEventListener(type, mark, { capture: true }),
-      );
+    if (typeof document !== "undefined") {
+      const mark = () => (state.lastInteraction = browser.now());
+      const events = ["pointerdown", "keydown", "scroll"] as const;
+      for (const type of events) {
+        document.addEventListener(type, mark, { passive: true, capture: true });
+        state.interactionListeners.push(() =>
+          document.removeEventListener(type, mark, { capture: true }),
+        );
+      }
+      return;
     }
+    // Non-DOM runtimes (React Native): the host fires a lifecycle
+    // "interaction" event when the user is active (the RN wrapper forwards
+    // track() calls and touch hooks to it).
+    const lc = browser.lifecycle;
+    if (!lc) return;
+    const mark = () => (state.lastInteraction = browser.now());
+    lc.add("interaction", mark);
+    state.lifecycleListeners.push(["interaction", mark]);
   }
 
   // -----------------------------------------------------------------
@@ -249,11 +259,13 @@ export function init(options: InitOptions): AnalyticsSdk {
     lc.add("pagehide", onHide);
     lc.add("visibilitychange", onVisibility);
     lc.add("pageshow", onShow);
-    state.lifecycleListeners = [
+    // Push, not replace: startInteractionTracking already registered the
+    // "interaction" mark on this list.
+    state.lifecycleListeners.push(
       ["pagehide", onHide],
       ["visibilitychange", onVisibility],
       ["pageshow", onShow],
-    ];
+    );
   }
 
   // -----------------------------------------------------------------
@@ -680,5 +692,9 @@ export {
 export { openMirror } from "./mirror.js";
 export type { EventMirror } from "./mirror.js";
 export { expiryReason } from "./session.js";
+export { loadRecord } from "./session.js";
+export { DROPPED_KEY } from "./queue.js";
 export type { SessionRecord } from "./session.js";
 export type { QueuedEvent } from "./queue.js";
+export type { QueueStorage } from "./queue.js";
+export type { PageContext } from "./context.js";

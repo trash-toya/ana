@@ -203,6 +203,16 @@ importers:
         specifier: ^5.1.0
         version: 5.1.0(@types/node@24.19.2)(vite@8.3.8(@types/node@24.19.2))
 
+  packages/sdk-react-native:
+    dependencies:
+      '@session-analytics/sdk-web':
+        specifier: workspace:*
+        version: link:../sdk-web
+    devDependencies:
+      '@session-analytics/shared':
+        specifier: workspace:*
+        version: link:../shared
+
   packages/sdk-server: {}
 
   packages/sdk-web:

@@ -170,10 +170,17 @@ export async function withLease<T>(
   for (;;) {
     const lease = readLease(storage);
     if (!lease || lease.holder === token || lease.expires_at <= now()) {
-      storage.set(
-        LEASE_KEY,
-        JSON.stringify({ holder: token, expires_at: now() + ttlMs }),
-      );
+      // A quota-frozen store can refuse the claim write; the election then is
+      // impossible and the emit proceeds unlocked (D17 — the emit path has
+      // its own quota resilience).
+      try {
+        storage.set(
+          LEASE_KEY,
+          JSON.stringify({ holder: token, expires_at: now() + ttlMs }),
+        );
+      } catch {
+        return fn();
+      }
       const again = readLease(storage); // last writer wins in a cross-tab race
       if (again && again.holder === token) {
         try {

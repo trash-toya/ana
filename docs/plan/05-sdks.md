@@ -128,7 +128,7 @@ the D17 residual race (short counted sessions, never a lost event).
 Blueprint section 6 is close to complete; the plan keeps its structure and fixes four
 gaps ([DEVIATIONS.md](DEVIATIONS.md) D10):
 
-1. **Flush cadence includes the size trigger.** `put()` calls `flush()` when the queue
+1. **Flush cadence includes the size trigger.** `track()` calls `flush()` when the queue
    reaches 100, not only on the 5 s interval.
 2. **`sdk_dropped` is reported even when the session is gone.** The PDF guards the report
    with `&& sess`, so drops after an idle expiry would never be reported; report them on
@@ -139,6 +139,24 @@ gaps ([DEVIATIONS.md](DEVIATIONS.md) D10):
 4. **`identify()` is persisted** and restored in `init()`, so events emitted after a cold
    start carry the `user_id` instead of `null`.
 
+**Architecture (D35): the RN SDK wraps the web core.** `packages/sdk-react-native`
+depends on `@session-analytics/sdk-web` and adapts it to RN primitives — MMKV →
+`browser.storage`, AppState → `browser.visibility` (plus a `visibilitychange`
+lifecycle fire, which makes the core flush on backgrounding), no Web Locks →
+`locks: null` (the single-context lease), `screen()`/deep-link campaigns →
+`browser.page`. Only the RN-specific machinery lives in the wrapper: the state
+machine below, the generation token, early-call buffering with original
+timestamps (serialized so pinned `now()` values cannot interleave), the
+deep-link forced expiry + one-shot campaign attribution, the pre-init
+`identify()`, the 100-event size trigger and the headless no-op. The web core
+gained two DOM-no-op additions for this: interaction tracking falls back to a
+lifecycle `"interaction"` event when there is no `document` (the wrapper fires
+it on every user-driven `track()`), and `__internal` introspection reads
+storage directly before the core exists (`loadRecord`/`readQueue`/
+`DROPPED_KEY` are exported). Ref 6's 10-min-401 retain timer is replaced by the
+core's retry policy: every flush re-sends the durable queue, so a long-offline
+period recovers on the next flush without a dedicated timer.
+
 ### State machine
 
 ```
@@ -147,13 +165,19 @@ uninitialized ──init()──► initializing ──► ready ──shutdown(
                               └────────── shutdown() raced with init ────────┘
 ```
 
-- `track()` before `ready` is buffered (≤ 200) with its original timestamp.
-- `init()` is idempotent while ready and returns the cached promise; after `shutdown()`
-  the promise is cleared, so a second `init()` with new credentials is honoured.
-- `shutdown()` bumps `gen`, removes listeners/timers, drains `flushP`, ignores results
-  from a newer generation, and resets every field so `init()` can be called again.
-- Restore order on `init()`: anon ID → session → dropped counters → queue (sorted by key)
-  → deep link → `ready` → replay buffered calls. Nothing can be overwritten.
+- `track()` before `ready` is buffered (≤ 200) with its original timestamp;
+  the call resolves only once the event is durably queued after init.
+- The init gate (`ready`) is resolved by BOTH init completion and `shutdown()`,
+  so a stuck `getInitialURL()` can never wedge a buffered caller (T18).
+- `init()` is idempotent while ready and returns the cached promise; after
+  `shutdown()` a second `init()` with new credentials is honoured.
+- `shutdown()` bumps `gen`, removes listeners/timers, unblocks the gate, and
+  ignores results from a newer generation; the durable queue survives.
+- Every `await` in an init/track/flush continuation re-checks `gen` (T18): a
+  stale `getInitialURL()` resolving after a shutdown attributes nothing.
+- Restore order on `init()`: anon ID → session → dropped counters → queue
+  (sorted by key) → deep link → `ready` → replay buffered calls. Nothing can
+  be overwritten.
 
 ### Durability statement (exact, as in the PDF)
 

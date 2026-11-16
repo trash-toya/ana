@@ -208,7 +208,10 @@ test("shutdown removes the lifecycle listeners", async (t) => {
       lifecycle,
     },
   });
+  // "interaction" is added in non-DOM runtimes (RN host fallback): the host
+  // fires it when the user is active.
   assert.deepEqual(added.map(([ty]) => ty).sort(), [
+    "interaction",
     "pagehide",
     "pageshow",
     "visibilitychange",

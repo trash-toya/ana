@@ -1,6 +1,11 @@
 -- cleanup_idempotency(job_id int, config jsonb) — bounded deletes by age index only.
--- 3 days = 24 h event age limit + 24 h max session length + 1 day margin.
--- Both deletes are bounded so a run never becomes an unbounded transaction.
+-- event_dedupe is retained 90 days, matching the raw-event retention window and
+-- the documented replay horizon: a producer may replay inside 90 days and must
+-- still get idempotent outcomes (conflicting_duplicate / accepted-dup), not a
+-- fresh insert or an unrelated rejection. The 3-day rule below applies ONLY to
+-- session lifecycle rows (guard, bootstrap): 24 h event age limit + 24 h max
+-- session length + margin. Both deletes are bounded so a run never becomes an
+-- unbounded transaction.
 CREATE OR REPLACE PROCEDURE cleanup_idempotency(job_id int, config jsonb)
 LANGUAGE plpgsql
 SET search_path = pg_catalog, public
@@ -8,7 +13,7 @@ AS $$
 BEGIN
   DELETE FROM event_dedupe
    WHERE ctid IN (SELECT ctid FROM event_dedupe
-                   WHERE received_at < now() - INTERVAL '3 days'
+                   WHERE received_at < now() - INTERVAL '90 days'
                    ORDER BY received_at
                    LIMIT 200000);
 

@@ -11,8 +11,10 @@ CREATE TABLE event_dedupe (
 ) WITH (autovacuum_vacuum_scale_factor = 0.02);
 CREATE INDEX event_dedupe_age ON event_dedupe (received_at);
 
--- Retention: 3 days = 24 h event age limit + 24 h max session length + 1 day margin.
--- Deleted by cleanup_idempotency (bounded batches), not a Timescale retention policy,
--- because it must stay exactly in step with session_guard (02-data-model.md).
+-- Retention: 90 days, matching the raw-event retention window and the producer
+-- replay horizon (Notion §21): a replay inside 90 days must still get an
+-- idempotent outcome. Deleted by cleanup_idempotency (bounded batches), not a
+-- Timescale retention policy, because the horizon must stay explicit and
+-- testable next to the 3-day session-lifecycle cleanup in the same job.
 
 RESET ROLE;

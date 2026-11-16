@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Session Analytics — Demo</title>
+<style>
+  :root { font-family: system-ui, sans-serif; }
+  body { margin: 0 auto; max-width: 980px; padding: 1rem; }
+  h1 { font-size: 1.2rem; }
+  .row { display: flex; gap: .5rem; flex-wrap: wrap; margin: .75rem 0; }
+  button { padding: .5rem .9rem; cursor: pointer; }
+  table { border-collapse: collapse; width: 100%; font-size: .78rem; margin: .5rem 0 1rem; }
+  th, td { border: 1px solid #ddd; padding: .25rem .45rem; text-align: left; }
+  th { background: #f4f4f4; }
+  code, pre { font-size: .75rem; }
+  .status { color: #666; font-size: .8rem; min-height: 1.2em; }
+  td.num { text-align: right; }
+  pre.props { margin: 0; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+</style>
+</head>
+<body>
+<h1>Session Analytics — P1 demo</h1>
+<p>
+  This page loads the web SDK from <code>/sdk/</code>, sends <code>session_start</code> +
+  <code>page_view</code> on load, and flushes through the same-origin proxy to the ingest
+  API, which writes rows into Postgres. The tables below read those rows from SQL
+  (<code>events</code>, <code>sessions_active</code>) — that is the G1 gate.
+</p>
+
+<div class="row">
+  <button id="btn-click">track("click")</button>
+  <button id="btn-custom">track("custom_event")</button>
+  <button id="btn-heartbeat">track("heartbeat")</button>
+  <button id="btn-identify">identify("demo_user")</button>
+  <button id="btn-flush">flush()</button>
+  <button id="btn-consent">setConsent(false)</button>
+</div>
+<div class="status" id="status"></div>
+
+<h2>Live SQL</h2>
+<div class="status" id="counts"></div>
+<table id="sessions">
+  <thead><tr><th>session</th><th>anon</th><th>user</th><th>started</th><th>last_seen</th><th class="num">engaged</th><th class="num">total</th><th>entry_url</th></tr></thead>
+  <tbody></tbody>
+</table>
+<table id="events">
+  <thead><tr><th>time</th><th>cat</th><th class="num">seq</th><th>name</th><th>url</th><th>user</th><th>props</th></tr></thead>
+  <tbody></tbody>
+</table>
+
+<script type="module">
+  const status = (m) => (document.getElementById("status").textContent = m);
+  const fmt = (s) => (s ? new Date(s).toLocaleTimeString() : "");
+  const short = (u) => (u ? u.slice(0, 18) : "");
+
+  // SDK is the built ESM served from the dist folder.
+  const { init } = await import("/sdk/index.js");
+
+  const cfg = await fetch("/demo/config").then((r) => r.json());
+  const sdk = init({
+    apiKey: cfg.apiKey,
+    endpoint: cfg.endpoint,
+    heartbeatMs: 30_000,
+    flushDebounceMs: 250,
+  });
+  status("SDK initialised");
+
+  // Buttons.
+  document.getElementById("btn-click").onclick = () => sdk.track("click", { source: "button" }).then(() => status("tracked click"));
+  document.getElementById("btn-custom").onclick = () => sdk.track("custom_event", { n: Math.floor(Math.random() * 100) }).then(() => status("tracked custom_event"));
+  document.getElementById("btn-heartbeat").onclick = () => sdk.track("heartbeat").then(() => status("tracked heartbeat (no engagement)"));
+  document.getElementById("btn-identify").onclick = () => { sdk.identify("demo_user"); status("identified as demo_user — next event carries user_id"); };
+  document.getElementById("btn-flush").onclick = () => sdk.flush().then(() => status("flushed"));
+  document.getElementById("btn-consent").onclick = () => { sdk.setConsent(false); status("consent revoked — queue and session cleared"); };
+
+  // Live SQL panel.
+  function fill(tableId, rows, cells) {
+    const tb = document.querySelector(`#${tableId} tbody`);
+    tb.innerHTML = rows.map((r) => `<tr>${cells(r).map((c) => `<td>${c}</td>`).join("")}</tr>`).join("");
+  }
+  async function poll() {
+    try {
+      const s = await fetch("/demo/state").then((r) => r.json());
+      document.getElementById("counts").textContent =
+        `tenants: ${s.tenants} · events: ${s.counts.events} · distinct sessions: ${s.counts.sessions} · sessions_active rows: ${s.counts.active_rows}`;
+      fill("sessions", s.sessions, (r) => [
+        r.session_id.slice(0, 8), r.anon_id.slice(0, 8), r.user_id ?? "—",
+        fmt(r.started_at), fmt(r.last_seen_at), r.event_count, r.total_events, short(r.entry_url),
+      ]);
+      fill("events", s.events, (r) => [
+        fmt(r.time), r.cat, r.seq ?? "—", r.name, short(r.url), r.user_id ?? "—",
+        `<code class="props" title='${JSON.stringify(r.props).replace(/'/g, "&#39;")}'>${JSON.stringify(r.props)}</code>`,
+      ]);
+    } catch (e) {
+      document.getElementById("counts").textContent = `state panel error: ${e}`;
+    }
+  }
+  setInterval(poll, 2000);
+  poll();
+</script>
+</body>
+</html>

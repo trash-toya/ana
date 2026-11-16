@@ -1,0 +1,72 @@
+# P0 Compose: pinned images, local + CI + staging shape (P4 adds standby + lb).
+# Source: docs/plan/07-operations.md topology table.
+name: sa-p0
+
+services:
+  db:
+    image: timescale/timescaledb-ha:pg17
+    # Verify the tag exists; fall back to the newest available pg17 tag if not
+    # (decision recorded in docs/plan/benchmarks/p0.md).
+    environment:
+      POSTGRES_PASSWORD: postgres
+    # Dev-sized but realistic for the P0 benchmarks at 100-500 ev/s.
+    command:
+      - postgres
+      - -c
+      - shared_buffers=1GB
+      - -c
+      - max_connections=300
+      - -c
+      - work_mem=16MB
+      - -c
+      - maintenance_work_mem=256MB
+      - -c
+      - wal_level=replica
+      - -c
+      - synchronous_commit=on
+      - -c
+      - timescaledb.max_background_workers=8
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - db_data:/home/postgres/pgdata
+    healthcheck:
+      # Assert the toolkit AND a hyperloglog round-trip, per 07-operations.md.
+      test:
+        [
+          "CMD-SHELL",
+          "psql -U postgres -d postgres -tAc \"SELECT CASE WHEN (SELECT distinct_count(hyperloglog(4096, x)) FROM (VALUES (1),(1),(2)) v(x)) = 2 AND to_regclass('_timescaledb_catalog.chunk') IS NOT NULL THEN 'ok' ELSE 'bad' END\" | grep -q ok",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    environment:
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: postgres
+      AUTH_TYPE: scram-sha-256
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: "1000"
+      DEFAULT_POOL_SIZE: "20"
+      ADMIN_USERS: postgres
+      # The edoburu image defaults to listening on 5432; the compose topology
+      # (docs/plan/07-operations.md) is 6432 on the host AND in the container.
+      LISTEN_PORT: "6432"
+      # The ingest pool sends statement_timeout as a startup parameter;
+      # transaction-mode pooling rejects unknown ones (I2 runs through
+      # pgbouncer too).
+      IGNORE_STARTUP_PARAMETERS: "statement_timeout"
+    ports:
+      - "127.0.0.1:6432:6432"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  db_data:

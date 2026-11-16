@@ -1,0 +1,45 @@
+{
+  "name": "session-analytics",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "workspaces": [
+    "packages/*",
+    "services/*"
+  ],
+  "scripts": {
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "build": "npm run build --workspaces --if-present",
+    "test:shared": "npm run build --workspace @session-analytics/shared && node --test \"packages/shared/test/*.test.mjs\"",
+    "test:ingest": "npm run build --workspace @session-analytics/ingest && node --test \"services/ingest/test/*.test.mjs\"",
+    "test:sdk": "npm run build --workspace @session-analytics/sdk-web && node --test \"packages/sdk-web/test/*.test.mjs\"",
+    "test:server-sdk": "npm run build --workspace @session-analytics/sdk-server && node --test \"packages/sdk-server/test/*.test.mjs\"",
+    "demo": "node demo/run.mjs",
+    "db:up": "docker compose -f ops/docker-compose.yml up -d",
+    "db:down": "docker compose -f ops/docker-compose.yml down",
+    "db:ping": "node db/test/scripts/db-ping.mjs",
+    "db:migrate": "node db/test/scripts/migrate.mjs",
+    "test:db": "node --test \"db/test/**/*.test.mjs\"",
+    "test:db:concurrency": "node --test \"db/test/concurrency/*.test.mjs\"",
+    "test:property": "node --test \"db/test/property/*.test.mjs\"",
+    "bench:p0": "node ops/loadtest/p0-bench.mjs"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.17.0",
+    "@types/express": "^5.0.6",
+    "@types/node": "^24.0.0",
+    "@types/pg": "^8.23.1",
+    "@types/supertest": "^7.2.1",
+    "eslint": "^9.17.0",
+    "globals": "^17.14.0",
+    "pg": "^8.13.0",
+    "prettier": "^3.4.2",
+    "supertest": "^7.3.2",
+    "typescript": "^5.7.0"
+  }
+}

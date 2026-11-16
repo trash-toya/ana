@@ -18,7 +18,7 @@ created by one of these files; nothing is created by hand.
 | `0009_functions.sql`        | `app_tenant()`, `parse_batch()`, `ingest_batch()` (`SECURITY DEFINER`, owned by `app_writer`) plus grants                 | P0    |
 | `0010_jobs.sql`             | `archive_sessions`, `rebuild_session_stats`, `cleanup_idempotency`, `reconcile_session_stats` procedures                  | P0    |
 | `0011_rls.sql`              | RLS enable/force + policies for the roles created in `0002`                                                               | P4    |
-| `0012_caggs.sql`            | `events_15m`, `identity_15m`, refresh policies, backfill calls                                                            | P3    |
+| `0012_caggs.sql`            | `events_15m`, `identity_15m`, refresh policies, backfill calls (**created in P3-1**, see "Continuous aggregates")         | P3    |
 | `0013_daily.sql`            | `session_stats_daily`, `identity_daily`, `rollup_daily`                                                                   | P3    |
 | `0014_schedule.sql`         | `add_job` registrations for the jobs that exist in the phase (staging/production only; the test harness never applies it) | P0/P3 |
 
@@ -150,6 +150,41 @@ Columns per PDF, with one change: `total_duration_s` becomes `numeric(20,6)` (mi
 precision, the precision of `extract(epoch …)`) and every contribution is stored
 unrounded. Rounding at display time only. A scale of 3 would round each contribution and
 reintroduce the drift D2 exists to remove ([DEVIATIONS.md](DEVIATIONS.md) D2).
+
+### Continuous aggregates `events_15m` / `identity_15m` (P3-1, `0012_caggs.sql`)
+
+Real-time CAGGs (`timescaledb.materialized_only = false`) over the 15-minute buckets,
+exposed to the dashboard only through the tenant-bound views D4 requires (RLS cannot be
+carried by a CAGG). Design pinned by the spike on the production image (Timescale
+2.32.0 / toolkit 1.26.0, T24):
+
+| Column (group: `tenant_id`, `bucket`)      | Why                                                                                                                                          |
+| ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `events_15m.events`, `engaged_events`      | exact counts; `engaged_events` filters `cat = 'e'`                                                                                            |
+| `events_15m.sessions`                      | `count(DISTINCT session_id)` — supported inside a CAGG on the pinned version, so session counts stay exact                                     |
+| `identity_15m.anon_hll`                    | `hyperloglog(4096, anon_id)` state; finalized on read with `distinct_count(rollup(...))`                                                       |
+| `identity_15m.users_hll`                   | `hyperloglog(4096, user_id) FILTER (WHERE user_id IS NOT NULL)` — without the filter, NULL user_ids corrupt the sketch (spike-verified)        |
+
+Three consequences worth writing down:
+
+1. **HLL states, not counts.** `distinct_count(rollup(hyperloglog(...)))` cannot be nested
+   inside a CAGG definition ("aggregate function calls cannot be nested"). The CAGG
+   materializes the raw sketch; finalization happens at read time and composes upward:
+   the daily rollup (P3-2) combines per-bucket states into a per-day sketch, which T24c
+   proves equals one sketch over the whole range. Small cardinalities are exact and
+   deterministic; the ~1.6% label applies at scale (04-services.md rule 4).
+2. **Real-time reads a watermark, not the world.** `materialized_only=false` serves the
+   union of materialized buckets and raw data **above** the refresh watermark. A late
+   insert into an already-materialized bucket is invisible until the next refresh (≤ 15
+   min by the policy); the newest partial bucket is kept out of the materialization
+   (`end_offset = one bucket`) so it is always live. This is the freshness contract P3-7
+   formalizes, and the reason the daily backfill in P3-2 refreshes explicit ranges.
+3. **Backfill is a refresh, not a copy.** The migration calls
+   `CALL refresh_continuous_aggregate(<cagg>, NULL, NULL)` — a no-op on a fresh install,
+   the documented backfill on an upgrade (whatever the 90-day raw retention can serve).
+   Refresh + retention policies are registered in the same file under the bootstrap
+   LOGIN role (same rule as 0003/0008); the test harness deletes `policy_*` jobs to stay
+   hermetic, and T24e reads them in that window.
 
 ### `identity_map` (new DDL)
 

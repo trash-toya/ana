@@ -1,0 +1,11 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "ignorePatterns": ["node_modules", "dist", "coverage", "docs", "ops"],
+  "env": { "node": true, "browser": true, "es2024": true },
+  "categories": { "correctness": "error" },
+  "rules": {
+    "no-unused-vars": "warn",
+    "eqeqeq": "error",
+    "prefer-const": "error"
+  }
+}

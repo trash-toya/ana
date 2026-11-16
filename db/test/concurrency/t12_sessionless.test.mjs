@@ -3,7 +3,7 @@
 // Machine-originated events (webhooks, background jobs) have no human session.
 // They still deduplicate, still store source/received_at, and must not create
 // session_guard/sessions_active/history rows or identity stitching.
-import { test } from "node:test";
+import { test } from "vitest";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import { withTestDb, ingest, event } from "../harness.mjs";
@@ -48,10 +48,18 @@ test("T12: sessionless events store, deduplicate and leave no session state", as
       assert.equal(row.time.toISOString(), now.toISOString());
 
       // Nothing session-scoped was invented.
-      for (const table of ["session_guard", "sessions_active", "sessions_history", "identity_map"]) {
+      for (const table of [
+        "session_guard",
+        "sessions_active",
+        "sessions_history",
+        "identity_map",
+      ]) {
         const n = Number(
-          (await c.query(`SELECT count(*) AS n FROM ${table} WHERE tenant_id = $1`, [tenantId]))
-            .rows[0].n,
+          (
+            await c.query(`SELECT count(*) AS n FROM ${table} WHERE tenant_id = $1`, [
+              tenantId,
+            ])
+          ).rows[0].n,
         );
         assert.equal(n, 0, `${table} must stay empty for a sessionless event`);
       }
@@ -61,8 +69,11 @@ test("T12: sessionless events store, deduplicate and leave no session state", as
       assert.deepEqual(r2.dups, [orderId]);
       assert.equal(r2.conflicts.length, 0);
       const stored = Number(
-        (await c.query("SELECT count(*) AS n FROM events WHERE tenant_id = $1", [tenantId]))
-          .rows[0].n,
+        (
+          await c.query("SELECT count(*) AS n FROM events WHERE tenant_id = $1", [
+            tenantId,
+          ])
+        ).rows[0].n,
       );
       assert.equal(stored, 1);
 
@@ -92,12 +103,23 @@ test("T12b: a mixed batch stores session and sessionless rows independently", as
     const sessionId = randomUuid();
     const now = new Date();
     const bound = event({
-      tenantId, sessionId, eventId: randomUuid(), seq: 1, time: now,
-      name: "page_view", source: "server",
+      tenantId,
+      sessionId,
+      eventId: randomUuid(),
+      seq: 1,
+      time: now,
+      name: "page_view",
+      source: "server",
     });
     const loose = event({
-      tenantId, sessionId: null, eventId: randomUuid(), seq: null, time: now,
-      name: "report_generated", anonId: null, source: "server",
+      tenantId,
+      sessionId: null,
+      eventId: randomUuid(),
+      seq: null,
+      time: now,
+      name: "report_generated",
+      anonId: null,
+      source: "server",
     });
     const c = await pool.connect();
     try {
@@ -119,7 +141,11 @@ test("T12b: a mixed batch stores session and sessionless rows independently", as
         [tenantId],
       );
       assert.equal(guard.rows.length, 1, "only the session-bound event creates a guard");
-      assert.equal(Number(guard.rows[0].total_events), 1, "sessionless events consume no cap");
+      assert.equal(
+        Number(guard.rows[0].total_events),
+        1,
+        "sessionless events consume no cap",
+      );
     } finally {
       c.release();
     }

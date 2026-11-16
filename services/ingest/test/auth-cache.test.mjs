@@ -1,4 +1,4 @@
-import test from "node:test";
+import { test } from "vitest";
 import assert from "node:assert/strict";
 import { withTestDb } from "../../../db/test/harness.mjs";
 import { ApiKeyAuth } from "../dist/auth.js";
@@ -61,18 +61,20 @@ test("TTL expiry re-queries and sees a revocation within ttlMs", async () => {
     assert.equal(calls.length, 1);
 
     // revoke in the DB; the cache still answers ok inside the TTL
-    await pool.query(
-      "UPDATE api_keys SET revoked_at = now() WHERE tenant_id = $1 AND key_hash = digest($2, 'sha256')",
-      [keys.tenantId, keys.ingestKey],
-    ).catch(async () => {
-      // digest() may be unavailable without pgcrypto; fall back to computing the hash in JS
-      const { createHash } = await import("node:crypto");
-      const hash = createHash("sha256").update(keys.ingestKey, "utf8").digest();
-      await pool.query(
-        "UPDATE api_keys SET revoked_at = now() WHERE tenant_id = $1 AND key_hash = $2",
-        [keys.tenantId, hash],
-      );
-    });
+    await pool
+      .query(
+        "UPDATE api_keys SET revoked_at = now() WHERE tenant_id = $1 AND key_hash = digest($2, 'sha256')",
+        [keys.tenantId, keys.ingestKey],
+      )
+      .catch(async () => {
+        // digest() may be unavailable without pgcrypto; fall back to computing the hash in JS
+        const { createHash } = await import("node:crypto");
+        const hash = createHash("sha256").update(keys.ingestKey, "utf8").digest();
+        await pool.query(
+          "UPDATE api_keys SET revoked_at = now() WHERE tenant_id = $1 AND key_hash = $2",
+          [keys.tenantId, hash],
+        );
+      });
     clock.t += 500;
     assert.equal((await auth.authenticate(keys.ingestKey)).ok, true);
     assert.equal(calls.length, 1);

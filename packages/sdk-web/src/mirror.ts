@@ -29,7 +29,9 @@ function done<T>(req: IDBRequest<T>): Promise<T> {
  * old browsers, private-mode rejection) — the primary then stands alone.
  */
 export async function openMirror(
-  factory: IDBFactory | undefined = typeof indexedDB === "undefined" ? undefined : indexedDB,
+  factory: IDBFactory | undefined = typeof indexedDB === "undefined"
+    ? undefined
+    : indexedDB,
 ): Promise<EventMirror | undefined> {
   if (!factory) return undefined;
   let db: IDBDatabase;

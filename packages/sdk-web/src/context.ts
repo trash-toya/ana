@@ -17,7 +17,13 @@ export function utmFromSearch(search: string): Record<string, string> {
   } catch {
     return utm;
   }
-  for (const key of ["utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content"]) {
+  for (const key of [
+    "utm_source",
+    "utm_medium",
+    "utm_campaign",
+    "utm_term",
+    "utm_content",
+  ]) {
     const v = params.get(key);
     if (v) utm[key.slice(4)] = v;
   }
@@ -25,9 +31,10 @@ export function utmFromSearch(search: string): Record<string, string> {
 }
 
 /** Context for the current page view (browser globals, injectable for tests). */
-export function pageContext(
-  win: { location: { href: string; search: string }; document: { referrer: string } },
-): PageContext {
+export function pageContext(win: {
+  location: { href: string; search: string };
+  document: { referrer: string };
+}): PageContext {
   let url: string | null = null;
   try {
     url = new URL(win.location.href).pathname + win.location.search;

@@ -1,4 +1,4 @@
-import test from "node:test";
+import { test } from "vitest";
 import assert from "node:assert/strict";
 import pg from "pg";
 import request from "supertest";
@@ -17,8 +17,14 @@ test("metrics registry: counters aggregate by label set, gauges overwrite", () =
   assert.match(out, /^# TYPE http_requests_total counter$/m);
   assert.match(out, /^# TYPE buffer_depth gauge$/m);
   // label order is canonical (sorted), so the two 200s aggregate into one series
-  assert.match(out, /^http_requests_total\{method="POST",route="\/v1\/events",status="200"\} 2$/m);
-  assert.match(out, /^http_requests_total\{method="POST",route="\/v1\/events",status="503"\} 1$/m);
+  assert.match(
+    out,
+    /^http_requests_total\{method="POST",route="\/v1\/events",status="200"\} 2$/m,
+  );
+  assert.match(
+    out,
+    /^http_requests_total\{method="POST",route="\/v1\/events",status="503"\} 1$/m,
+  );
   assert.match(out, /^buffer_depth 42$/m);
 });
 

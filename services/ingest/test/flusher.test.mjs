@@ -1,7 +1,7 @@
 // Buffer + flush unit tests with an injected batch executor and fake timers.
-// Node 24 mock timers are synchronous (tick), so after every tick the test
-// awaits the waiter — the flush continuation drains on microtasks.
-import test from "node:test";
+// Vitest fake timers are synchronous (advanceTimersByTime), so after every
+// tick the test awaits the waiter — the flush continuation drains on microtasks.
+import { test, onTestFinished, vi } from "vitest";
 import assert from "node:assert/strict";
 import { BufferFullError, Flusher } from "../dist/flusher.js";
 
@@ -40,26 +40,34 @@ function makeFlusher(t, { submitBatch, ...opts }) {
     submitBatch: fn,
     ...opts,
   });
-  t.after(() => flusher.shutdown());
+  onTestFinished(() => flusher.shutdown());
   return { flusher, calls };
 }
 
 test("idle flush: one call after FLUSH_IDLE_MS, waiter resolves with outcomes", async (t) => {
-  t.mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
+  vi.useFakeTimers({ toFake: ["setTimeout", "setInterval"] });
+  onTestFinished(() => vi.useRealTimers());
   const { flusher, calls } = makeFlusher(t, {});
   const rows = [row(1), row(2)];
   const waiter = flusher.enqueue("t", ledgerOf(rows));
   assert.equal(flusher.depth, 2);
 
-  t.mock.timers.tick(50);
+  vi.advanceTimersByTime(50);
   const result = await waiter;
   assert.equal(calls.length, 1);
-  assert.deepEqual(calls[0].map((r) => r.event_id), rows.map((r) => r.event_id));
-  assert.deepEqual(result.stored, rows.map((r) => r.event_id));
+  assert.deepEqual(
+    calls[0].map((r) => r.event_id),
+    rows.map((r) => r.event_id),
+  );
+  assert.deepEqual(
+    result.stored,
+    rows.map((r) => r.event_id),
+  );
 });
 
 test("buffer reaching MAX_BATCH flushes immediately without waiting for the timer", async (t) => {
-  t.mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
+  vi.useFakeTimers({ toFake: ["setTimeout", "setInterval"] });
+  onTestFinished(() => vi.useRealTimers());
   const { flusher, calls } = makeFlusher(t, { maxBatch: 2 });
   const w1 = flusher.enqueue("t", ledgerOf([row(1)]));
   const w2 = flusher.enqueue("t", ledgerOf([row(2)]));
@@ -71,12 +79,13 @@ test("buffer reaching MAX_BATCH flushes immediately without waiting for the time
 });
 
 test("MAX_BATCH splits a request across flushes; the waiter aggregates both", async (t) => {
-  t.mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
+  vi.useFakeTimers({ toFake: ["setTimeout", "setInterval"] });
+  onTestFinished(() => vi.useRealTimers());
   const { flusher, calls } = makeFlusher(t, { maxBatch: 2 });
   const rows = [row(1), row(2), row(3)];
   const waiter = flusher.enqueue("t", ledgerOf(rows)); // immediate flush of the first 2
 
-  t.mock.timers.tick(100); // rescheduled idle window flushes the remainder
+  vi.advanceTimersByTime(100); // rescheduled idle window flushes the remainder
   const result = await waiter;
   assert.equal(calls.length, 2);
   assert.equal(calls[0].length, 2);
@@ -84,7 +93,8 @@ test("MAX_BATCH splits a request across flushes; the waiter aggregates both", as
 });
 
 test("multiple requests share one ingest_batch call; results are partitioned per waiter", async (t) => {
-  t.mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
+  vi.useFakeTimers({ toFake: ["setTimeout", "setInterval"] });
+  onTestFinished(() => vi.useRealTimers());
   const { flusher, calls } = makeFlusher(t, {
     // result contains ids for BOTH requests plus a foreign id — filtering
     // must give each waiter only its own
@@ -101,7 +111,7 @@ test("multiple requests share one ingest_batch call; results are partitioned per
   const w1 = flusher.enqueue("t", ledgerOf([row(1)]));
   const w2 = flusher.enqueue("t", ledgerOf([row(2)]));
 
-  t.mock.timers.tick(50);
+  vi.advanceTimersByTime(50);
   const [r1, r2] = await Promise.all([w1, w2]);
   assert.equal(calls.length, 1); // batch mixing: one call, several requests
   assert.deepEqual(r1.stored, [row(1).event_id]);
@@ -111,7 +121,8 @@ test("multiple requests share one ingest_batch call; results are partitioned per
 });
 
 test("at most one ingest_batch in flight; the timer never stacks flushes", async (t) => {
-  t.mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
+  vi.useFakeTimers({ toFake: ["setTimeout", "setInterval"] });
+  onTestFinished(() => vi.useRealTimers());
   let release;
   const gate = new Promise((r) => (release = r));
   const started = [];
@@ -129,7 +140,7 @@ test("at most one ingest_batch in flight; the timer never stacks flushes", async
 
   const w2 = flusher.enqueue("t", ledgerOf([row(2)]));
   flusher.enqueue("t", ledgerOf([row(3)]));
-  t.mock.timers.tick(5_000); // timers fire while in flight: no stacking
+  vi.advanceTimersByTime(5_000); // timers fire while in flight: no stacking
   await Promise.resolve();
   assert.equal(started.length, 1);
   assert.equal(flusher.pending, 3); // 1 in flight + 2 buffered
@@ -142,7 +153,8 @@ test("at most one ingest_batch in flight; the timer never stacks flushes", async
 });
 
 test("BUFFER_MAX: the overflowing request 503s, buffered events stay", async (t) => {
-  t.mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
+  vi.useFakeTimers({ toFake: ["setTimeout", "setInterval"] });
+  onTestFinished(() => vi.useRealTimers());
   let release;
   const gate = new Promise((r) => (release = r));
   const { flusher, calls } = makeFlusher(t, {
@@ -156,7 +168,7 @@ test("BUFFER_MAX: the overflowing request 503s, buffered events stay", async (t)
   });
 
   const keep = flusher.enqueue("t", ledgerOf([row(1), row(2)]));
-  t.mock.timers.tick(50); // the two rows move from buffer to in-flight
+  vi.advanceTimersByTime(50); // the two rows move from buffer to in-flight
   await Promise.resolve();
   assert.equal(flusher.pending, 2);
   // a request needing 2 more slots would exceed bufferMax=3 → 503
@@ -171,14 +183,15 @@ test("BUFFER_MAX: the overflowing request 503s, buffered events stay", async (t)
   assert.equal(rFits.stored.length, 1);
   // two submit calls inside ONE flush: [row1,row2] while blocked, [row5]
   // picked up by the same drain loop once the gate released
-  assert.deepEqual(calls.map((c) => c.map((r) => r.event_id)), [
-    [row(1).event_id, row(2).event_id],
-    [row(5).event_id],
-  ]);
+  assert.deepEqual(
+    calls.map((c) => c.map((r) => r.event_id)),
+    [[row(1).event_id, row(2).event_id], [row(5).event_id]],
+  );
 });
 
 test("submitBatch failure rejects only the affected waiters; the rest stay buffered", async (t) => {
-  t.mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
+  vi.useFakeTimers({ toFake: ["setTimeout", "setInterval"] });
+  onTestFinished(() => vi.useRealTimers());
   let release;
   const gate = new Promise((r) => (release = r));
   const calls = [];
@@ -194,7 +207,7 @@ test("submitBatch failure rejects only the affected waiters; the rest stay buffe
       return { stored: rows.map((r) => r.event_id), dups: [], capped: [], conflicts: [] };
     },
   });
-  t.after(() => flusher.shutdown());
+  onTestFinished(() => flusher.shutdown());
   const bad = flusher.enqueue("t", ledgerOf([row(1)]));
   await Promise.resolve(); // the flush starts and blocks on the gate
   const good = flusher.enqueue("t", ledgerOf([row(2)])); // buffered behind it
@@ -208,7 +221,8 @@ test("submitBatch failure rejects only the affected waiters; the rest stay buffe
   assert.equal(flusher.pending, 0);
 });
 test("enqueue after shutdown throws BufferFullError", async (t) => {
-  t.mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
+  vi.useFakeTimers({ toFake: ["setTimeout", "setInterval"] });
+  onTestFinished(() => vi.useRealTimers());
   const { flusher } = makeFlusher(t, {});
   await flusher.shutdown();
   assert.throws(() => flusher.enqueue("t", ledgerOf([row(1)])), BufferFullError);

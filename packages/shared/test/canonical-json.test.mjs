@@ -1,4 +1,4 @@
-import test from "node:test";
+import { test } from "vitest";
 import assert from "node:assert/strict";
 import { canonicalJson } from "../dist/index.js";
 
@@ -28,7 +28,7 @@ test("null, booleans, strings and finite numbers are preserved", () => {
   assert.equal(canonicalJson(null), "null");
   assert.equal(canonicalJson(true), "true");
   assert.equal(canonicalJson(false), "false");
-  assert.equal(canonicalJson("a\"b"), '"a\\"b"');
+  assert.equal(canonicalJson('a"b'), '"a\\"b"');
   assert.equal(canonicalJson(0), "0");
   assert.equal(canonicalJson(-1.5), "-1.5");
 });

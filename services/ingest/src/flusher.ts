@@ -78,8 +78,7 @@ export class Flusher {
     this.flushIdleMs = options.flushIdleMs ?? 50;
     this.flushIntervalMs = options.flushIntervalMs ?? 1000;
     this.metrics = options.metrics;
-    this.submitBatchFn =
-      options.submitBatch ?? ((rows) => this.defaultSubmitBatch(rows));
+    this.submitBatchFn = options.submitBatch ?? ((rows) => this.defaultSubmitBatch(rows));
     // Safety ceiling: flush() no-ops when empty or already in flight, so this
     // can never stack flushes — it only guarantees eventual progress.
     this.ceilingTimer = setInterval(() => void this.flush(), this.flushIntervalMs);
@@ -110,7 +109,12 @@ export class Flusher {
     const req: PendingRequest = {
       outcome,
       rowsLeft: outcome.rows.length,
-      results: { stored: new Set(), dups: new Set(), capped: new Set(), conflicts: new Set() },
+      results: {
+        stored: new Set(),
+        dups: new Set(),
+        capped: new Set(),
+        conflicts: new Set(),
+      },
       resolve: () => {},
       reject: () => {},
     };
@@ -258,10 +262,7 @@ export class Flusher {
   }
 }
 
-function filterResult(
-  result: IngestBatchResult,
-  ids: Set<string>,
-): IngestBatchResult {
+function filterResult(result: IngestBatchResult, ids: Set<string>): IngestBatchResult {
   const keep = (list: string[]) => list.filter((id) => ids.has(id));
   return {
     stored: keep(result.stored),

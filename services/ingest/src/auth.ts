@@ -109,11 +109,7 @@ export class ApiKeyAuth {
 
   /** Express middleware: sets req.tenantId or answers 401/403 itself. */
   middleware(): RequestHandler {
-    return async (
-      req: Request,
-      res: Response,
-      next: NextFunction,
-    ): Promise<void> => {
+    return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
       let result: AuthResult;
       try {
         result = await this.authenticate(req.get("X-API-Key"));

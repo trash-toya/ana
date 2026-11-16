@@ -69,7 +69,10 @@ export interface ValidationOutcome {
 /** Envelope-level failure → 400 (SDK bug; drop batch, do not loop). */
 export class EnvelopeError extends Error {
   readonly status = 400;
-  constructor(readonly code: string, message: string) {
+  constructor(
+    readonly code: string,
+    message: string,
+  ) {
     super(message);
     this.name = "EnvelopeError";
   }
@@ -271,17 +274,15 @@ export function assembleOutcomes(
     if (cached) return cached;
     let value: { accepted: boolean; reason?: RejectReason };
     if (capped.has(id)) value = { accepted: false, reason: "session_capped" };
-    else if (conflicts.has(id)) value = { accepted: false, reason: "conflicting_duplicate" };
+    else if (conflicts.has(id))
+      value = { accepted: false, reason: "conflicting_duplicate" };
     else if (stored.has(id) || seen.has(id)) value = { accepted: true };
     else value = { accepted: true }; // unreported by the function → accepted duplicate
     resolved.set(id, value);
     return value;
   };
 
-  const push = (
-    v: { accepted: boolean; reason?: RejectReason },
-    id: string,
-  ): void => {
+  const push = (v: { accepted: boolean; reason?: RejectReason }, id: string): void => {
     if (v.accepted) accepted.push(id);
     else rejected.push({ event_id: id, reason: v.reason as RejectReason });
     reported.add(id);
@@ -366,10 +367,18 @@ function shapeFailure(event: unknown): string | null {
       return `field ${key} must be string|null`;
     }
   }
-  if ("source" in e && e.source !== "client" && e.source !== "server" && e.source !== "webhook") {
+  if (
+    "source" in e &&
+    e.source !== "client" &&
+    e.source !== "server" &&
+    e.source !== "webhook"
+  ) {
     return "field source must be client|server|webhook";
   }
-  if ("props" in e && (e.props === null || typeof e.props !== "object" || Array.isArray(e.props))) {
+  if (
+    "props" in e &&
+    (e.props === null || typeof e.props !== "object" || Array.isArray(e.props))
+  ) {
     return "field props must be an object";
   }
   // unknown keys and non-ISO timestamps are structural failures

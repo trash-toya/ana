@@ -204,8 +204,10 @@ export class ServerAnalytics {
   private lastAuthError: number | null = null;
 
   constructor(options: ServerAnalyticsOptions) {
-    if (!options.endpoint) throw new ServerAnalyticsError("invalid_request", "endpoint is required");
-    if (!options.apiKey) throw new ServerAnalyticsError("invalid_request", "apiKey is required");
+    if (!options.endpoint)
+      throw new ServerAnalyticsError("invalid_request", "endpoint is required");
+    if (!options.apiKey)
+      throw new ServerAnalyticsError("invalid_request", "apiKey is required");
     this.baseUrl = normalizeBase(options.endpoint);
     this.apiKey = options.apiKey;
     this.fetchFn = options.fetchFn ?? ((url, init) => fetch(url, init));
@@ -244,7 +246,11 @@ export class ServerAnalytics {
       throw new ServerAnalyticsError("auth_failed", "session bootstrap rejected", status);
     }
     if (status !== 200 || !isSessionDescriptor(body)) {
-      throw new ServerAnalyticsError("bootstrap_failed", `session bootstrap failed (${status})`, status);
+      throw new ServerAnalyticsError(
+        "bootstrap_failed",
+        `session bootstrap failed (${status})`,
+        status,
+      );
     }
     this.sessionInfo = body;
     // The server SDK must open the session's event stream exactly once.
@@ -255,10 +261,18 @@ export class ServerAnalytics {
   async validateSession(context: string): Promise<SessionValidation> {
     const { status, body } = await this.request("/v1/sessions/validate", { context });
     if (status === 401 || status === 403) {
-      throw new ServerAnalyticsError("auth_failed", "session validation rejected", status);
+      throw new ServerAnalyticsError(
+        "auth_failed",
+        "session validation rejected",
+        status,
+      );
     }
     if (status !== 200 || typeof body !== "object" || body === null) {
-      throw new ServerAnalyticsError("validation_failed", `session validation failed (${status})`, status);
+      throw new ServerAnalyticsError(
+        "validation_failed",
+        `session validation failed (${status})`,
+        status,
+      );
     }
     return body as SessionValidation;
   }
@@ -277,9 +291,8 @@ export class ServerAnalytics {
     }
 
     const active = this.sessionInfo;
-    const sessionId = "sessionId" in options
-      ? options.sessionId ?? null
-      : active?.session_id ?? null;
+    const sessionId =
+      "sessionId" in options ? (options.sessionId ?? null) : (active?.session_id ?? null);
     const isActive = active !== null && sessionId === active.session_id;
 
     let anonId: string | null;
@@ -294,11 +307,8 @@ export class ServerAnalytics {
       );
     }
 
-    const userId = options.userId !== undefined
-      ? options.userId
-      : isActive
-        ? active.user_id
-        : null;
+    const userId =
+      options.userId !== undefined ? options.userId : isActive ? active.user_id : null;
     const source = options.source ?? "server";
 
     // session_start is emitted by the SDK, not demanded from the caller, and
@@ -372,7 +382,8 @@ export class ServerAnalytics {
       ms = Math.max(this.now(), this.lastEventMs + 1);
     } else {
       ms = override instanceof Date ? override.getTime() : Date.parse(override);
-      if (Number.isNaN(ms)) throw new ServerAnalyticsError("invalid_request", "invalid time");
+      if (Number.isNaN(ms))
+        throw new ServerAnalyticsError("invalid_request", "invalid time");
     }
     this.lastEventMs = Math.max(this.lastEventMs, ms);
     return new Date(ms).toISOString();

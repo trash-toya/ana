@@ -4,10 +4,9 @@ import { createHash, randomUUID } from "node:crypto";
 
 export async function seedTenantWithKeys(pool) {
   const tenantId = (
-    await pool.query(
-      "INSERT INTO tenants (name) VALUES ($1) RETURNING tenant_id",
-      ["ingest-test"],
-    )
+    await pool.query("INSERT INTO tenants (name) VALUES ($1) RETURNING tenant_id", [
+      "ingest-test",
+    ])
   ).rows[0].tenant_id;
 
   async function addKey(kind, { revoked = false } = {}) {

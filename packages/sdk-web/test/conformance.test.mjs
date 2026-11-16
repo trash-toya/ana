@@ -2,7 +2,7 @@
 // conformance) driven through the web shims — Map-backed localStorage, a
 // promise-chain Web-Lock mutex, the fake conformance server, an injectable
 // clock and a fireable lifecycle source.
-import test from "node:test";
+import { test } from "vitest";
 import assert from "node:assert/strict";
 
 import { init } from "../dist/index.js";
@@ -89,7 +89,8 @@ function makeEnv(opts = {}) {
 }
 
 const cases = conformance(makeEnv);
-if (cases.length !== 15) throw new Error(`expected 15 conformance cases, got ${cases.length}`);
+if (cases.length !== 15)
+  throw new Error(`expected 15 conformance cases, got ${cases.length}`);
 
 for (const c of cases) {
   test(`conformance: ${c.name}`, async () => {
@@ -132,9 +133,15 @@ test("conformance: mirror recovers events the primary lost", async () => {
   const env = makeEnv({ flushDebounceMs: 60_000 });
   const mirror = {
     store: new Map(),
-    async put(e) { this.store.set(e.event_id, JSON.parse(JSON.stringify(e))); },
-    async delete(ids) { for (const id of ids) this.store.delete(id); },
-    async readAll() { return [...this.store.values()]; },
+    async put(e) {
+      this.store.set(e.event_id, JSON.parse(JSON.stringify(e)));
+    },
+    async delete(ids) {
+      for (const id of ids) this.store.delete(id);
+    },
+    async readAll() {
+      return [...this.store.values()];
+    },
   };
   const sdk = init({
     apiKey: "k",
@@ -185,9 +192,15 @@ test("conformance: quota fallback persists through the awaited mirror write", as
   const env = makeEnv({ flushDebounceMs: 60_000 });
   const mirror = {
     store: new Map(),
-    async put(e) { this.store.set(e.event_id, e); },
-    async delete(ids) { for (const id of ids) this.store.delete(id); },
-    async readAll() { return [...this.store.values()]; },
+    async put(e) {
+      this.store.set(e.event_id, e);
+    },
+    async delete(ids) {
+      for (const id of ids) this.store.delete(id);
+    },
+    async readAll() {
+      return [...this.store.values()];
+    },
   };
   const sdk = init({
     apiKey: "k",

@@ -102,7 +102,11 @@ export async function withLock<T>(
 
 /** Run `fn` while holding the session lock, with the record loaded/saved. */
 export async function mutateRecord<T>(
-  storage: { get(k: string): string | null; set(k: string, v: string): void; remove(k: string): void },
+  storage: {
+    get(k: string): string | null;
+    set(k: string, v: string): void;
+    remove(k: string): void;
+  },
   locks: Parameters<typeof withLock>[0],
   nowMs: number,
   fn: (rec: SessionRecord | null) => T | Promise<T>,

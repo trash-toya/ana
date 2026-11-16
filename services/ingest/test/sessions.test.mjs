@@ -1,6 +1,6 @@
 // Rev 5 server-first ingestion: session bootstrap/resume, signed context,
 // provenance authorization and sessionless events through the real app.
-import test from "node:test";
+import { test } from "vitest";
 import assert from "node:assert/strict";
 import request from "supertest";
 import { withTestDb } from "../../../db/test/harness.mjs";
@@ -252,7 +252,8 @@ test("end to end: server key emits a sessionless webhook event and a session-bou
 
 test("session service: a short secret is a configuration error", () => {
   assert.throws(
-    () => new SessionService({ pool: {}, secret: "x".repeat(MIN_CONTEXT_SECRET_LENGTH - 1) }),
+    () =>
+      new SessionService({ pool: {}, secret: "x".repeat(MIN_CONTEXT_SECRET_LENGTH - 1) }),
     /at least/,
   );
 });

@@ -1,7 +1,7 @@
 // T8 — deletion rebuild (P0 portion of the P4-8 workflow). Delete a tenant's sessions
 // from sessions_history, rebuild the range: no stale bucket remains, the other tenant
 // is untouched. The full seven-step workflow is exercised in P4 (T8 there covers this).
-import { test } from "node:test";
+import { test } from "vitest";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import { withTestDb, ingest, event, forceArchive } from "../harness.mjs";
@@ -15,15 +15,25 @@ test("T8: rebuild after deleting a tenant's sessions leaves no stale bucket", as
     const BASE = Date.UTC(2026, 10, 15, 11, 0, 0);
     const c = await pool.connect();
 
-    for (const [tenantId, nSessions] of [[tenantA, 3], [tenantB, 2]]) {
+    for (const [tenantId, nSessions] of [
+      [tenantA, 3],
+      [tenantB, 2],
+    ]) {
       for (let s = 0; s < nSessions; s++) {
         const sessionId = randomUuid();
         const batch = [];
         for (let i = 0; i < 4; i++) {
-          batch.push(event({
-            tenantId, sessionId, eventId: randomUuid(), seq: i + 1,
-            time: new Date(BASE + i * 60_000), name: "page_view", cat: "e",
-          }));
+          batch.push(
+            event({
+              tenantId,
+              sessionId,
+              eventId: randomUuid(),
+              seq: i + 1,
+              time: new Date(BASE + i * 60_000),
+              name: "page_view",
+              cat: "e",
+            }),
+          );
         }
         await ingest(c, batch);
       }
@@ -51,12 +61,11 @@ test("T8: rebuild after deleting a tenant's sessions leaves no stale bucket", as
     const range = await c.query(
       `SELECT min(started_at) AS lo, max(started_at) AS hi FROM sessions_history`,
     );
-    await c.query(
-      "CALL rebuild_session_stats($1, $2, $3)",
-      [null,
-       new Date(new Date(range.rows[0].lo).getTime() - 3_600_000),
-       new Date(new Date(range.rows[0].hi).getTime() + 3_600_000)],
-    );
+    await c.query("CALL rebuild_session_stats($1, $2, $3)", [
+      null,
+      new Date(new Date(range.rows[0].lo).getTime() - 3_600_000),
+      new Date(new Date(range.rows[0].hi).getTime() + 3_600_000),
+    ]);
 
     const after = await c.query(
       "SELECT tenant_id, sum(sessions) AS s FROM session_stats_15m GROUP BY 1 ORDER BY 1",

@@ -1,13 +1,9 @@
 // Unit tests for @session-analytics/sdk-server (P1B-4): session bootstrap,
 // session_start emission, sessionless tracking, per-source time, and the
 // full retry matrix against a fake transport (no network, no database).
-import test from "node:test";
+import { test } from "vitest";
 import assert from "node:assert/strict";
-import {
-  ServerAnalytics,
-  ServerAnalyticsError,
-  retryAfterMs,
-} from "../dist/index.js";
+import { ServerAnalytics, ServerAnalyticsError, retryAfterMs } from "../dist/index.js";
 
 const BASE = "https://ingest.test";
 const KEY = "sk_server_test";
@@ -94,7 +90,10 @@ test("track: sessionless event has no session/seq, source defaults to server", a
   assert.equal(event.anon_id, undefined);
   assert.equal(event.seq, undefined, "D31: seq is omitted by default");
   assert.deepEqual(event.props, { order: "o1" });
-  assert.match(event.event_id, /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  assert.match(
+    event.event_id,
+    /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+  );
   assert.equal(sdk.pending(), 0);
 });
 
@@ -139,15 +138,17 @@ test("resume with stored events does not emit session_start", async () => {
   await sdk.flush();
 
   const [call] = eventCalls(fetchFn);
-  assert.deepEqual(call.body.events.map((event) => event.name), ["page_view"]);
+  assert.deepEqual(
+    call.body.events.map((event) => event.name),
+    ["page_view"],
+  );
 });
 
 test("session-bound tracking without a visitor id is an SDK error", () => {
   const sdk = client(recorder());
   assert.throws(
     () => sdk.track("page_view", { sessionId: descriptor().session_id }),
-    (error) =>
-      error instanceof ServerAnalyticsError && error.code === "missing_anon_id",
+    (error) => error instanceof ServerAnalyticsError && error.code === "missing_anon_id",
   );
   assert.throws(
     () => sdk.track("Page View"),
@@ -192,7 +193,12 @@ test("retry: 401 retains the queue and records the auth error", async () => {
 
 test("retry: 413 halves the batch until it fits", async () => {
   const fetchFn = recorder(({ body, index }) =>
-    index === 0 ? { status: 413 } : { status: 200, body: { accepted: body.events.map((e) => e.event_id), rejected: [] } },
+    index === 0
+      ? { status: 413 }
+      : {
+          status: 200,
+          body: { accepted: body.events.map((e) => e.event_id), rejected: [] },
+        },
   );
   const sdk = client(fetchFn);
   sdk.track("e1");
@@ -208,7 +214,10 @@ test("retry: 429 honours Retry-After then succeeds", async () => {
   const fetchFn = recorder(({ body, index }) =>
     index === 0
       ? { status: 429, headers: { "retry-after": "0" } }
-      : { status: 200, body: { accepted: body.events.map((e) => e.event_id), rejected: [] } },
+      : {
+          status: 200,
+          body: { accepted: body.events.map((e) => e.event_id), rejected: [] },
+        },
   );
   const sdk = client(fetchFn);
   sdk.track("page_view");
@@ -228,7 +237,10 @@ test("retry: 5xx and network errors back off and recover", async () => {
       mode = "ok";
       return "network";
     }
-    return { status: 200, body: { accepted: body.events.map((e) => e.event_id), rejected: [] } };
+    return {
+      status: 200,
+      body: { accepted: body.events.map((e) => e.event_id), rejected: [] },
+    };
   });
   const sdk = client(fetchFn);
   sdk.track("page_view");

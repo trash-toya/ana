@@ -62,14 +62,12 @@ export interface IngestAppOptions {
 export function createApp(options: IngestAppOptions): Express {
   const metrics = options.metrics ?? new Metrics();
   const auth = options.auth ?? new ApiKeyAuth(options.pool);
-  const flusher =
-    options.flusher ?? new Flusher({ pool: options.pool, metrics });
+  const flusher = options.flusher ?? new Flusher({ pool: options.pool, metrics });
   const submit: SubmitFn =
     options.submit ?? ((r) => flusher.enqueue(r.tenantId, r.outcome));
   const metricsLocalOnly = options.metricsLocalOnly ?? true;
   const metricsAllowed =
-    options.metricsAllowed ??
-    ((addr: string | undefined) => isInternalAddress(addr));
+    options.metricsAllowed ?? ((addr: string | undefined) => isInternalAddress(addr));
 
   const app: Express = express();
   app.disable("x-powered-by");
@@ -99,9 +97,7 @@ export function createApp(options: IngestAppOptions): Express {
       res.status(403).json({ error: "forbidden" });
       return;
     }
-    res
-      .type("text/plain; version=0.0.4; charset=utf-8")
-      .send(metrics.render());
+    res.type("text/plain; version=0.0.4; charset=utf-8").send(metrics.render());
   });
 
   app.post("/v1/events", auth.middleware(), async (req, res) => {
@@ -126,20 +122,25 @@ export function createApp(options: IngestAppOptions): Express {
   if (options.sessions) {
     const sessions = options.sessions;
 
-    app.post("/v1/sessions", auth.middleware(), requireServerKey, async (req, res, next) => {
-      const parsed = SessionStartRequestSchema.safeParse(req.body);
-      if (!parsed.success) {
-        res.status(400).json({ error: "malformed" });
-        return;
-      }
-      try {
-        const session = await sessions.start(req.tenantId as string, parsed.data);
-        metrics.inc("session_bootstrap_total", { resumed: String(session.resumed) });
-        res.status(200).json(session);
-      } catch (err) {
-        next(err);
-      }
-    });
+    app.post(
+      "/v1/sessions",
+      auth.middleware(),
+      requireServerKey,
+      async (req, res, next) => {
+        const parsed = SessionStartRequestSchema.safeParse(req.body);
+        if (!parsed.success) {
+          res.status(400).json({ error: "malformed" });
+          return;
+        }
+        try {
+          const session = await sessions.start(req.tenantId as string, parsed.data);
+          metrics.inc("session_bootstrap_total", { resumed: String(session.resumed) });
+          res.status(200).json(session);
+        } catch (err) {
+          next(err);
+        }
+      },
+    );
 
     app.post(
       "/v1/sessions/validate",
@@ -186,12 +187,7 @@ function notFound(req: Request, res: Response): void {
 // Maps body-parser failures and unhandled route errors onto the response
 // contract (04-services.md): 400 malformed, 413 too large, 503 transient,
 // everything else 500.
-export const errorHandler: ErrorRequestHandler = (
-  err,
-  _req,
-  res,
-  _next,
-) => {
+export const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
   if (err instanceof EnvelopeError) {
     res.status(400).json({ error: err.code });
     return;
@@ -209,7 +205,10 @@ export const errorHandler: ErrorRequestHandler = (
     return;
   }
   const status = typeof err?.status === "number" && err.status >= 400 ? err.status : 500;
-  if (status >= 500) console.error(JSON.stringify({ msg: "unhandled_error", error: String(err?.stack ?? err) }));
+  if (status >= 500)
+    console.error(
+      JSON.stringify({ msg: "unhandled_error", error: String(err?.stack ?? err) }),
+    );
   res.status(status).json({ error: "internal_error" });
 };
 

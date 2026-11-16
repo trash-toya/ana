@@ -3,7 +3,7 @@
 // The bootstrap record is separate from analytics rows; resume has three
 // rotation rules (idle 30 min, age 24 h, user switch); concurrent bootstraps
 // for one visitor return one session; only real events advance the idle clock.
-import { test } from "node:test";
+import { test } from "vitest";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import { withTestDb, ingest, event } from "../harness.mjs";
@@ -12,7 +12,9 @@ const randomUuid = () => crypto.randomUUID();
 const T0 = Date.UTC(2026, 10, 15, 12, 0, 0);
 
 async function bootstrap(client, params) {
-  const res = await client.query("SELECT bootstrap_session($1) AS r", [JSON.stringify(params)]);
+  const res = await client.query("SELECT bootstrap_session($1) AS r", [
+    JSON.stringify(params),
+  ]);
   return res.rows[0].r;
 }
 
@@ -84,7 +86,11 @@ test("T13: create, resume, idle/age/user rotation, and the event clock", async (
       });
       assert.equal(afterEvent.resumed, true);
       assert.equal(afterEvent.session_id, first.session_id);
-      assert.equal(afterEvent.emitted_events, 1, "stored events count from session_guard");
+      assert.equal(
+        afterEvent.emitted_events,
+        1,
+        "stored events count from session_guard",
+      );
       assert.equal(
         new Date(afterEvent.last_event_at).toISOString(),
         new Date(T0 + 12 * 60_000).toISOString(),
@@ -131,7 +137,12 @@ test("T13: create, resume, idle/age/user rotation, and the event clock", async (
       assert.notEqual(switched.session_id, login.session_id);
 
       // Validation read: found, with live expiry and the stored event count.
-      const found = await lookup(c, tenantId, aged.session_id, T0 + 24 * 60 * 60_000 + 4 * 60_000);
+      const found = await lookup(
+        c,
+        tenantId,
+        aged.session_id,
+        T0 + 24 * 60 * 60_000 + 4 * 60_000,
+      );
       assert.equal(found.found, true);
       assert.equal(found.emitted_events, 0);
 
@@ -152,16 +163,22 @@ test("T13b: concurrent bootstraps for one visitor return one session", async () 
     try {
       const results = await Promise.all(
         clients.map((client) =>
-          client.query("BEGIN").then(() =>
-            bootstrap(client, { tenant_id: tenantId, anon_id: anonId, now }).then(
-              (r) => client.query("COMMIT").then(() => r),
+          client
+            .query("BEGIN")
+            .then(() =>
+              bootstrap(client, { tenant_id: tenantId, anon_id: anonId, now }).then((r) =>
+                client.query("COMMIT").then(() => r),
+              ),
             ),
-          ),
         ),
       );
       const ids = new Set(results.map((r) => r.session_id));
       assert.equal(ids.size, 1, `expected one session, got ${ids.size}`);
-      assert.equal(results.filter((r) => r.resumed === false).length, 1, "exactly one creator");
+      assert.equal(
+        results.filter((r) => r.resumed === false).length,
+        1,
+        "exactly one creator",
+      );
 
       const rows = await pool.query(
         "SELECT count(*) AS n FROM session_bootstrap WHERE tenant_id = $1 AND anon_id = $2",
@@ -191,8 +208,12 @@ test("T13c: bootstrap guard is respected by the cap", async () => {
         [tenantId, s.session_id],
       );
       const evt = event({
-        tenantId, sessionId: s.session_id, eventId: randomUuid(), seq: 1,
-        time: new Date(T0 + 60_000), name: "page_view",
+        tenantId,
+        sessionId: s.session_id,
+        eventId: randomUuid(),
+        seq: 1,
+        time: new Date(T0 + 60_000),
+        name: "page_view",
       });
       const r = await ingest(c, [evt]);
       assert.equal(r.stored.length, 0);

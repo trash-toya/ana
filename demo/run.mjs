@@ -29,9 +29,14 @@ function run(cmd, args, opts = {}) {
 log("starting compose db + pgbouncer…");
 run("docker", ["compose", ...COMPOSE, "up", "-d", "db", "pgbouncer"]);
 for (let i = 0; i < 60; i++) {
-  const st = spawnSync("docker", ["compose", ...COMPOSE, "ps", "db", "--format", "{{.Status}}"], {
-    cwd: ROOT, encoding: "utf8",
-  }).stdout.trim();
+  const st = spawnSync(
+    "docker",
+    ["compose", ...COMPOSE, "ps", "db", "--format", "{{.Status}}"],
+    {
+      cwd: ROOT,
+      encoding: "utf8",
+    },
+  ).stdout.trim();
   if (st.includes("healthy")) break;
   if (i === 59) die("db did not become healthy in 120 s");
   await new Promise((r) => setTimeout(r, 2_000));
@@ -63,8 +68,13 @@ for (let i = 0; i < 50; i++) {
   if (ingest.exitCode !== null) die("ingest exited during startup");
   try {
     const res = await fetch("http://127.0.0.1:3001/readyz");
-    if (res.ok) { ready = true; break; }
-  } catch { /* not up yet */ }
+    if (res.ok) {
+      ready = true;
+      break;
+    }
+  } catch {
+    /* not up yet */
+  }
   await new Promise((r) => setTimeout(r, 200));
 }
 if (!ready) die("ingest /readyz did not come up in 10 s");

@@ -2,7 +2,7 @@
 // late events: 100 stored (room = 100), one history row with total_events = 5000,
 // stats session count unchanged, duration delta exact (+100 s). Exercises D18: the
 // late partial sits in sessions_active while history already holds the session.
-import { test } from "node:test";
+import { test } from "vitest";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import { withTestDb, ingest, event, forceArchive } from "../harness.mjs";
@@ -20,10 +20,17 @@ test("T2: late events after archiving respect the cap and merge exactly", async 
     // 1. Fill to 4,900: one event per second starting at 10:00:00.
     const first = [];
     for (let i = 0; i < 4900; i++) {
-      first.push(event({
-        tenantId, sessionId, eventId: randomUuid(), seq: i + 1,
-        time: new Date(START + i * 1000), name: "page_view", cat: "e",
-      }));
+      first.push(
+        event({
+          tenantId,
+          sessionId,
+          eventId: randomUuid(),
+          seq: i + 1,
+          time: new Date(START + i * 1000),
+          name: "page_view",
+          cat: "e",
+        }),
+      );
     }
     const r1 = await ingest(c, first);
     assert.equal(r1.stored.length, 4900);
@@ -51,10 +58,17 @@ test("T2: late events after archiving respect the cap and merge exactly", async 
     const lastSeen = new Date(hist1.rows[0].last_seen_at);
     const late = [];
     for (let i = 0; i < 200; i++) {
-      late.push(event({
-        tenantId, sessionId, eventId: randomUuid(), seq: 4901 + i,
-        time: new Date(lastSeen.getTime() + (i + 1) * 1000), name: "page_view", cat: "e",
-      }));
+      late.push(
+        event({
+          tenantId,
+          sessionId,
+          eventId: randomUuid(),
+          seq: 4901 + i,
+          time: new Date(lastSeen.getTime() + (i + 1) * 1000),
+          name: "page_view",
+          cat: "e",
+        }),
+      );
     }
     const r2 = await ingest(c, late);
     assert.equal(r2.stored.length, 100, "only 100 stored — the cap survived archiving");
@@ -66,9 +80,7 @@ test("T2: late events after archiving respect the cap and merge exactly", async 
     );
     assert.equal(guard.rows[0].total_events, 5000);
 
-    const active = await c.query(
-      "SELECT total_events FROM sessions_active",
-    );
+    const active = await c.query("SELECT total_events FROM sessions_active");
     assert.equal(Number(active.rows[0].total_events), 100, "late partial is its own row");
 
     // D18: the live view must not show the session twice.
@@ -87,7 +99,11 @@ test("T2: late events after archiving respect the cap and merge exactly", async 
     const stats2 = await c.query(
       "SELECT sessions, total_duration_s, events FROM session_stats_15m",
     );
-    assert.equal(Number(stats2.rows[0].sessions), 1, "session count unchanged by the merge");
+    assert.equal(
+      Number(stats2.rows[0].sessions),
+      1,
+      "session count unchanged by the merge",
+    );
     assert.equal(Number(stats2.rows[0].events), 5000);
     const dur2 = Number(stats2.rows[0].total_duration_s);
     assert.equal(dur2 - dur1, 100, "duration delta is exactly the late span (100 s)");

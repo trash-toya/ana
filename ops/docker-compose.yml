@@ -35,7 +35,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          "psql -U postgres -d postgres -tAc \"SELECT CASE WHEN (SELECT distinct_count(hyperloglog(4096, x)) FROM (VALUES (1),(1),(2)) v(x)) = 2 AND to_regclass('_timescaledb_catalog.chunk') IS NOT NULL THEN 'ok' ELSE 'bad' END\" | grep -q ok",
+          'psql -U postgres -d postgres -tAc "SELECT CASE WHEN (SELECT distinct_count(hyperloglog(4096, x)) FROM (VALUES (1),(1),(2)) v(x)) = 2 AND to_regclass(''_timescaledb_catalog.chunk'') IS NOT NULL THEN ''ok'' ELSE ''bad'' END" | grep -q ok',
         ]
       interval: 5s
       timeout: 5s

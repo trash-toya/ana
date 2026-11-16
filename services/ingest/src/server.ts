@@ -28,16 +28,23 @@ const pool = new pg.Pool({
 // take every in-flight request with it); log it — pg discards the broken
 // client and the pool reconnects on the next query.
 pool.on("error", (err: Error & { code?: string }) => {
-  console.error(JSON.stringify({ msg: "db_pool_error", error: err.message, code: err.code }));
+  console.error(
+    JSON.stringify({ msg: "db_pool_error", error: err.message, code: err.code }),
+  );
 });
 
 // Bootstrap/resume is optional: without a secret the routes stay unmounted and
 // the service is ingestion-only. Never invent a secret in production.
 const contextSecret = process.env.SESSION_CONTEXT_SECRET;
-const sessions = contextSecret ? new SessionService({ pool, secret: contextSecret }) : undefined;
+const sessions = contextSecret
+  ? new SessionService({ pool, secret: contextSecret })
+  : undefined;
 if (!sessions) {
   console.error(
-    JSON.stringify({ msg: "session_bootstrap_disabled", reason: "SESSION_CONTEXT_SECRET is not set" }),
+    JSON.stringify({
+      msg: "session_bootstrap_disabled",
+      reason: "SESSION_CONTEXT_SECRET is not set",
+    }),
   );
 }
 

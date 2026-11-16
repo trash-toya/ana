@@ -72,7 +72,10 @@ export class SessionService {
     this.now = options.now ?? (() => new Date());
   }
 
-  async start(tenantId: string, request: SessionStartRequest): Promise<SessionDescriptor> {
+  async start(
+    tenantId: string,
+    request: SessionStartRequest,
+  ): Promise<SessionDescriptor> {
     const at = this.now();
     const params = {
       tenant_id: tenantId,
@@ -98,7 +101,11 @@ export class SessionService {
       emitted_events: row.emitted_events,
       properties: row.properties ?? {},
       // Hard age, not the idle expiry: the idle clock is checked in validate().
-      context: this.sign(tenantId, row.session_id, Date.parse(row.started_at) + SESSION_MAX_AGE_MS),
+      context: this.sign(
+        tenantId,
+        row.session_id,
+        Date.parse(row.started_at) + SESSION_MAX_AGE_MS,
+      ),
     };
   }
 
@@ -121,7 +128,12 @@ export class SessionService {
     if (!row.found) return { valid: false, reason: "unknown_session" };
     const expiresAt = iso(row.expires_at as string);
     if (Date.parse(expiresAt) <= now) {
-      return { valid: false, reason: "expired", session_id: parsed.sessionId, expires_at: expiresAt };
+      return {
+        valid: false,
+        reason: "expired",
+        session_id: parsed.sessionId,
+        expires_at: expiresAt,
+      };
     }
     return {
       valid: true,
@@ -137,7 +149,12 @@ export class SessionService {
   /** `v1.<session_id>.<exp_epoch_s>.<hmac>` — self-describing, no key server. */
   private sign(tenantId: string, sessionId: string, expMs: number): string {
     const exp = Math.floor(expMs / 1000);
-    return [TOKEN_VERSION, sessionId, String(exp), this.signature(tenantId, sessionId, exp)].join(".");
+    return [
+      TOKEN_VERSION,
+      sessionId,
+      String(exp),
+      this.signature(tenantId, sessionId, exp),
+    ].join(".");
   }
 
   private signature(tenantId: string, sessionId: string, exp: number): string {

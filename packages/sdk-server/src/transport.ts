@@ -99,14 +99,18 @@ export async function sendBatch(options: SendBatchOptions): Promise<SendOutcome>
     };
   }
   if (res.status === 400) return { kind: "permanent" };
-  if (res.status === 401 || res.status === 403) return { kind: "auth", status: res.status };
+  if (res.status === 401 || res.status === 403)
+    return { kind: "auth", status: res.status };
   if (res.status === 413) return { kind: "too_large" };
   const delayMs = retryAfterMs(res.headers?.get("retry-after") ?? null);
   return delayMs === undefined ? { kind: "retry" } : { kind: "retry", delayMs };
 }
 
 /** Retry-After is delta-seconds or an HTTP date; both map to a delay. */
-export function retryAfterMs(value: string | null, nowMs = Date.now()): number | undefined {
+export function retryAfterMs(
+  value: string | null,
+  nowMs = Date.now(),
+): number | undefined {
   if (!value) return undefined;
   const seconds = Number(value);
   if (Number.isFinite(seconds) && seconds >= 0) return Math.round(seconds * 1000);

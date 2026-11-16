@@ -1,7 +1,7 @@
 // End-to-end: validateBatch → ingest_batch() (real DB) → assembleOutcomes.
 // This is the flush pipeline minus buffering (P1-4 adds the buffer in front
 // of exactly these steps).
-import test from "node:test";
+import { test } from "vitest";
 import assert from "node:assert/strict";
 import { withTestDb, ingest } from "../../../db/test/harness.mjs";
 import { seedTenantWithKeys } from "./helpers.mjs";
@@ -83,13 +83,22 @@ test("a retry of the same batch is accepted again without storing twice", async 
     try {
       const first = assembleOutcomes(
         validateBatch(envelope(batch, sentAt), { tenantId, receivedAt }),
-        await ingest(client, validateBatch(envelope(batch, sentAt), { tenantId, receivedAt }).rows),
+        await ingest(
+          client,
+          validateBatch(envelope(batch, sentAt), { tenantId, receivedAt }).rows,
+        ),
       );
       assert.equal(first.accepted.length, 2);
 
       // exact retry: same ids, same payloads — reported as accepted (dups)
-      const retryOutcome = validateBatch(envelope(batch, sentAt), { tenantId, receivedAt });
-      const retry = assembleOutcomes(retryOutcome, await ingest(client, retryOutcome.rows));
+      const retryOutcome = validateBatch(envelope(batch, sentAt), {
+        tenantId,
+        receivedAt,
+      });
+      const retry = assembleOutcomes(
+        retryOutcome,
+        await ingest(client, retryOutcome.rows),
+      );
       assert.equal(retry.accepted.length, 2);
       assert.equal(retry.rejected.length, 0);
 
@@ -110,21 +119,38 @@ test("same id, different payload across requests → conflicting_duplicate", asy
     const receivedAt = new Date();
     const sentAt = new Date(receivedAt.getTime() - 10_000).toISOString();
     const id = "018f2c00-0000-7000-8000-0000000000f1";
-    const v1 = { event_id: id, session_id: SESSION, time: new Date(Date.now() - 60_000).toISOString(), name: "click", props: { a: 1 } };
+    const v1 = {
+      event_id: id,
+      session_id: SESSION,
+      time: new Date(Date.now() - 60_000).toISOString(),
+      name: "click",
+      props: { a: 1 },
+    };
     const v2 = { ...v1, props: { a: 2 } };
 
     const client = await pool.connect();
     try {
       const first = assembleOutcomes(
         validateBatch(envelope([v1], sentAt), { tenantId, receivedAt }),
-        await ingest(client, validateBatch(envelope([v1], sentAt), { tenantId, receivedAt }).rows),
+        await ingest(
+          client,
+          validateBatch(envelope([v1], sentAt), { tenantId, receivedAt }).rows,
+        ),
       );
       assert.deepEqual(first.accepted, [id]);
 
-      const secondOutcome = validateBatch(envelope([v2], sentAt), { tenantId, receivedAt });
-      const second = assembleOutcomes(secondOutcome, await ingest(client, secondOutcome.rows));
+      const secondOutcome = validateBatch(envelope([v2], sentAt), {
+        tenantId,
+        receivedAt,
+      });
+      const second = assembleOutcomes(
+        secondOutcome,
+        await ingest(client, secondOutcome.rows),
+      );
       assert.deepEqual(second.accepted, []);
-      assert.deepEqual(second.rejected, [{ event_id: id, reason: "conflicting_duplicate" }]);
+      assert.deepEqual(second.rejected, [
+        { event_id: id, reason: "conflicting_duplicate" },
+      ]);
     } finally {
       client.release();
     }

@@ -3,7 +3,7 @@
 // them in all six arrival orders (fresh database per permutation); the final
 // attribution (user_id, entry_url, utm, device) must be identical, because the merge
 // compares timestamps: the earliest event carrying the attribute wins (Appendix A 1.3).
-import { test } from "node:test";
+import { test } from "vitest";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import { withTestDb, ingest, event } from "../harness.mjs";
@@ -16,39 +16,94 @@ const BASE = Date.UTC(2026, 10, 15, 9, 0, 0);
 // Batch C: user_id latest, latest page_view.
 function batchA(tenantId, sessionId) {
   return [
-    event({ tenantId, sessionId, eventId: randomUuid(), seq: 1,
-      time: new Date(BASE), name: "session_start", cat: "l", url: null,
-      props: { utm: { source: "a-src", campaign: "a-camp" }, device: "desktop",
-               country: "DE" }, userId: "user_A" }),
-    event({ tenantId, sessionId, eventId: randomUuid(), seq: 2,
-      time: new Date(BASE + 60_000), name: "page_view", cat: "e", url: "/a-entry" }),
+    event({
+      tenantId,
+      sessionId,
+      eventId: randomUuid(),
+      seq: 1,
+      time: new Date(BASE),
+      name: "session_start",
+      cat: "l",
+      url: null,
+      props: {
+        utm: { source: "a-src", campaign: "a-camp" },
+        device: "desktop",
+        country: "DE",
+      },
+      userId: "user_A",
+    }),
+    event({
+      tenantId,
+      sessionId,
+      eventId: randomUuid(),
+      seq: 2,
+      time: new Date(BASE + 60_000),
+      name: "page_view",
+      cat: "e",
+      url: "/a-entry",
+    }),
   ];
 }
 function batchB(tenantId, sessionId) {
   return [
-    event({ tenantId, sessionId, eventId: randomUuid(), seq: 3,
-      time: new Date(BASE + 120_000), name: "page_view", cat: "e", url: "/b-entry",
-      userId: "user_B" }),
-    event({ tenantId, sessionId, eventId: randomUuid(), seq: 4,
-      time: new Date(BASE + 180_000), name: "heartbeat", cat: "s", url: null }),
+    event({
+      tenantId,
+      sessionId,
+      eventId: randomUuid(),
+      seq: 3,
+      time: new Date(BASE + 120_000),
+      name: "page_view",
+      cat: "e",
+      url: "/b-entry",
+      userId: "user_B",
+    }),
+    event({
+      tenantId,
+      sessionId,
+      eventId: randomUuid(),
+      seq: 4,
+      time: new Date(BASE + 180_000),
+      name: "heartbeat",
+      cat: "s",
+      url: null,
+    }),
   ];
 }
 function batchC(tenantId, sessionId) {
   return [
-    event({ tenantId, sessionId, eventId: randomUuid(), seq: 5,
-      time: new Date(BASE + 240_000), name: "page_view", cat: "e", url: "/c-entry",
-      userId: "user_C" }),
-    event({ tenantId, sessionId, eventId: randomUuid(), seq: 6,
-      time: new Date(BASE + 300_000), name: "click", cat: "e", url: "/c-click",
-      props: { utm: { source: "c-src", campaign: "c-camp" }, device: "mobile",
-               country: "FR" } }),
+    event({
+      tenantId,
+      sessionId,
+      eventId: randomUuid(),
+      seq: 5,
+      time: new Date(BASE + 240_000),
+      name: "page_view",
+      cat: "e",
+      url: "/c-entry",
+      userId: "user_C",
+    }),
+    event({
+      tenantId,
+      sessionId,
+      eventId: randomUuid(),
+      seq: 6,
+      time: new Date(BASE + 300_000),
+      name: "click",
+      cat: "e",
+      url: "/c-click",
+      props: {
+        utm: { source: "c-src", campaign: "c-camp" },
+        device: "mobile",
+        country: "FR",
+      },
+    }),
   ];
 }
 
 const EXPECTED = {
-  user_id: "user_A",          // earliest event carrying a user_id wins
-  entry_url: "/a-entry",      // earliest page_view wins
-  utm: { source: "a-src", campaign: "a-camp" },  // earliest session_start wins
+  user_id: "user_A", // earliest event carrying a user_id wins
+  entry_url: "/a-entry", // earliest page_view wins
+  utm: { source: "a-src", campaign: "a-camp" }, // earliest session_start wins
   device: "desktop",
   country: "DE",
 };
@@ -59,8 +114,11 @@ async function runPermutation(order) {
     const sessionId = randomUuid();
     const c = await pool.connect();
     try {
-      const batches = { A: batchA(tenantId, sessionId), B: batchB(tenantId, sessionId),
-        C: batchC(tenantId, sessionId) };
+      const batches = {
+        A: batchA(tenantId, sessionId),
+        B: batchB(tenantId, sessionId),
+        C: batchC(tenantId, sessionId),
+      };
       let ord = 0;
       for (const key of order) {
         for (const ev of batches[key]) ev.ord = ord++;
@@ -98,8 +156,11 @@ async function runPermutation(order) {
       const im = await c.query(
         "SELECT user_id, min(first_seen) AS fs FROM identity_map GROUP BY user_id ORDER BY user_id",
       );
-      assert.deepEqual(im.rows.map((r) => r.user_id), ["user_A", "user_B", "user_C"],
-        "all identities committed with their events");
+      assert.deepEqual(
+        im.rows.map((r) => r.user_id),
+        ["user_A", "user_B", "user_C"],
+        "all identities committed with their events",
+      );
       return im.rows.map((r) => new Date(r.fs).getTime());
     } finally {
       c.release();

@@ -3,8 +3,7 @@
 import { Client } from "pg";
 
 const url =
-  process.env.DATABASE_URL ??
-  "postgresql://postgres:postgres@127.0.0.1:5432/postgres";
+  process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:5432/postgres";
 
 const client = new Client({ connectionString: url, connectionTimeoutMillis: 5_000 });
 await client.connect();
@@ -13,8 +12,7 @@ const checks = {
   version: "SELECT version()",
   toolkit: "SELECT count(*) FROM pg_extension WHERE extname = 'timescaledb_toolkit'",
   timescale: "SELECT count(*) FROM pg_extension WHERE extname = 'timescaledb'",
-  hll:
-    "SELECT distinct_count(hyperloglog(4096, x)) FROM (VALUES (1),(1),(2)) v(x)",
+  hll: "SELECT distinct_count(hyperloglog(4096, x)) FROM (VALUES (1),(1),(2)) v(x)",
 };
 
 const out = {};

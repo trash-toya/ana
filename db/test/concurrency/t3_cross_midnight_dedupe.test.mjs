@@ -2,7 +2,7 @@
 // in two rounds. Expected: each event stored once; no duplicates; the second round is
 // reported as duplicates (accepted), regardless of the midnight boundary — the dedupe
 // key is (tenant_id, event_id) with no day in it (Appendix A 1.2).
-import { test } from "node:test";
+import { test } from "vitest";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import { withTestDb, ingest, event } from "../harness.mjs";
@@ -16,11 +16,17 @@ function same500(round, offsetMs = 0) {
   const events = [];
   for (let i = 0; i < 500; i++) {
     const t = Date.UTC(2026, 10, 15, 23, 59, 50) + i * 1000 + offsetMs;
-    events.push(event({
-      tenantId, sessionId,
-      eventId: `00000000-0000-7000-8000-${String(i + 1).padStart(12, "0")}`,
-      seq: i + 1, time: new Date(t), name: "page_view", cat: "e",
-    }));
+    events.push(
+      event({
+        tenantId,
+        sessionId,
+        eventId: `00000000-0000-7000-8000-${String(i + 1).padStart(12, "0")}`,
+        seq: i + 1,
+        time: new Date(t),
+        name: "page_view",
+        cat: "e",
+      }),
+    );
   }
   return events;
 }
@@ -48,8 +54,11 @@ test("T3: same 500 events, 10 workers, two rounds across midnight", async () => 
     const conflicts = allOutcomes.flatMap((r) => r.conflicts);
 
     assert.equal(capped.length + conflicts.length, 0);
-    assert.equal(new Set([...stored, ...dups]).size, 500,
-      "every submitted ID reported, each event id exactly once per worker-round");
+    assert.equal(
+      new Set([...stored, ...dups]).size,
+      500,
+      "every submitted ID reported, each event id exactly once per worker-round",
+    );
     assert.equal(stored.length, 500, "exactly one copy of each event stored");
     // 9,500 duplicate reports = 4,500 intra-round races (9 losers per event in round 1)
     // + 5,000 replays in round 2. All are accepted outcomes.
@@ -73,7 +82,11 @@ test("T3: same 500 events, 10 workers, two rounds across midnight", async () => 
         "SELECT total_events FROM sessions_active WHERE tenant_id = $1 AND session_id = $2",
         [tenantId, sessionId],
       );
-      assert.equal(Number(active.rows[0].total_events), 500, "no double count live either");
+      assert.equal(
+        Number(active.rows[0].total_events),
+        500,
+        "no double count live either",
+      );
     } finally {
       c.release();
     }

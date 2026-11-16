@@ -2,7 +2,7 @@
 // heartbeats, transport outcomes, consent, multi-tab, restart reconciliation)
 // live in the conformance suite: packages/shared/test/conformance, driven by
 // packages/sdk-web/test/conformance.test.mjs.
-import test from "node:test";
+import { test, onTestFinished } from "vitest";
 import assert from "node:assert/strict";
 import { init } from "../dist/index.js";
 import { SESSION_KEY } from "../dist/session.js";
@@ -38,14 +38,17 @@ function fakeFetch(statusFn) {
   const calls = [];
   const fn = async (url, opts) => {
     calls.push({ url, opts, body: JSON.parse(opts.body) });
-    const status = typeof statusFn === "function" ? statusFn(calls.length, calls) : statusFn;
+    const status =
+      typeof statusFn === "function" ? statusFn(calls.length, calls) : statusFn;
     if (status === "network") throw new TypeError("fetch failed");
     return {
       status,
       json: async () => ({
         accepted: [],
         rejected: [],
-        ...(status === 200 ? { accepted: calls.at(-1).body.events.map((e) => e.event_id) } : {}),
+        ...(status === 200
+          ? { accepted: calls.at(-1).body.events.map((e) => e.event_id) }
+          : {}),
       }),
     };
   };
@@ -73,7 +76,7 @@ function makeSdk(t, { status = 200, startMs = 1_700_000_000_000, storage, locks 
       visibility: () => true,
     },
   });
-  t.after(() => sdk.shutdown());
+  onTestFinished(() => sdk.shutdown());
   return { sdk, store, clock, fetchFn };
 }
 
@@ -137,14 +140,17 @@ test("network error: queue preserved and a retry is scheduled", async (t) => {
         if (fails-- > 0) throw new TypeError("fetch failed");
         return {
           status: 200,
-          json: async () => ({ accepted: readQueue(store).map((e) => e.event_id), rejected: [] }),
+          json: async () => ({
+            accepted: readQueue(store).map((e) => e.event_id),
+            rejected: [],
+          }),
         };
       },
       now: () => 1_700_000_000_000,
       jitter: () => 0,
     },
   });
-  t.after(() => sdk.shutdown());
+  onTestFinished(() => sdk.shutdown());
   await sdk.track("click");
   await sdk.flush(); // retries through the two failures (backoff 1ms, 2ms)
   assert.equal(queueDepth(store), 0);
@@ -202,10 +208,11 @@ test("shutdown removes the lifecycle listeners", async (t) => {
       lifecycle,
     },
   });
-  assert.deepEqual(
-    added.map(([ty]) => ty).sort(),
-    ["pagehide", "pageshow", "visibilitychange"],
-  );
+  assert.deepEqual(added.map(([ty]) => ty).sort(), [
+    "pagehide",
+    "pageshow",
+    "visibilitychange",
+  ]);
   sdk.shutdown();
   assert.equal(added.length, 0);
 });

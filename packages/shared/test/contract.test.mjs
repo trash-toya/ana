@@ -1,4 +1,4 @@
-import test from "node:test";
+import { test } from "vitest";
 import assert from "node:assert/strict";
 import {
   ACCEPTED_SCHEMA_VERSIONS,
@@ -37,17 +37,20 @@ function envelope(overrides = {}) {
 }
 
 test("REJECT_REASONS matches the contract enum exactly", () => {
-  assert.deepEqual([...REJECT_REASONS], [
-    "invalid_uuid",
-    "missing_anon_id",
-    "too_old",
-    "too_new",
-    "bad_name",
-    "props_too_large",
-    "schema_unsupported",
-    "session_capped",
-    "conflicting_duplicate",
-  ]);
+  assert.deepEqual(
+    [...REJECT_REASONS],
+    [
+      "invalid_uuid",
+      "missing_anon_id",
+      "too_old",
+      "too_new",
+      "bad_name",
+      "props_too_large",
+      "schema_unsupported",
+      "session_capped",
+      "conflicting_duplicate",
+    ],
+  );
 });
 
 test("sources: provenance values and key-kind authorization (D28)", () => {
@@ -161,7 +164,9 @@ test("strict schemas reject unknown fields", () => {
 test("events array capped at 500", () => {
   const many = envelope({ events: Array.from({ length: 501 }, () => event()) });
   assert.equal(EnvelopeSchema.safeParse(many).success, false);
-  const ok = envelope({ events: Array.from({ length: MAX_EVENTS_PER_REQUEST }, () => event()) });
+  const ok = envelope({
+    events: Array.from({ length: MAX_EVENTS_PER_REQUEST }, () => event()),
+  });
   assert.ok(EnvelopeSchema.safeParse(ok).success);
 });
 

@@ -1,7 +1,7 @@
 // App-level tests with the real DB and the real buffer+flush pipeline:
 // concurrent requests, per-request outcome partitioning, and the G1
 // criterion "no acknowledged batch lost on a forced 503".
-import test from "node:test";
+import { test } from "vitest";
 import assert from "node:assert/strict";
 import request from "supertest";
 import { withTestDb } from "../../../db/test/harness.mjs";
@@ -81,7 +81,9 @@ test("forced 503 (BUFFER_MAX): acknowledged events stored, unacknowledged retry 
     const realCall = async (rows) => {
       const client = await pool.connect();
       try {
-        const res = await client.query("SELECT ingest_batch($1) AS r", [JSON.stringify(rows)]);
+        const res = await client.query("SELECT ingest_batch($1) AS r", [
+          JSON.stringify(rows),
+        ]);
         const r = res.rows[0].r;
         return {
           stored: r.stored ?? [],
@@ -110,12 +112,18 @@ test("forced 503 (BUFFER_MAX): acknowledged events stored, unacknowledged retry 
 
     // supertest chains are lazy — the request only fires once a .then is
     // attached. Capture the promise immediately so A is actually in flight.
-    const a = request(app).post("/v1/events").set("X-API-Key", ingestKey).send(envelope(batchA));
+    const a = request(app)
+      .post("/v1/events")
+      .set("X-API-Key", ingestKey)
+      .send(envelope(batchA));
     const aPromise = a.then((r) => r);
     // deterministic: wait until A's 25 rows are inside the flusher (buffered
     // or in flight) before posting B — then B always trips BUFFER_MAX
     await waitFor(() => flusher.pending === 25);
-    const b = request(app).post("/v1/events").set("X-API-Key", ingestKey).send(envelope(batchB));
+    const b = request(app)
+      .post("/v1/events")
+      .set("X-API-Key", ingestKey)
+      .send(envelope(batchB));
     const bPromise = b.then((r) => r);
 
     // B trips the buffer limit immediately (A's flush is still in flight)

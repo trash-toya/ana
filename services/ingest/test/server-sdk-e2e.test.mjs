@@ -3,7 +3,7 @@
 // A backend bootstraps a session, emits a session-bound server event and a
 // sessionless webhook event, and a replayed webhook stores once. This is the
 // P1B-4/P1B-5 done-when at the HTTP boundary, not the SQL unit level.
-import test from "node:test";
+import { test } from "vitest";
 import assert from "node:assert/strict";
 import { withTestDb } from "../../../db/test/harness.mjs";
 import { createApp } from "../dist/app.js";

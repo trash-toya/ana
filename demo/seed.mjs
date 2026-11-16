@@ -11,7 +11,8 @@ import { pathToFileURL } from "node:url";
 import pg from "pg";
 import { applyMigrations } from "../db/test/scripts/migrate.mjs";
 
-const COMPOSE_URL = process.env.DEMO_DB_URL ?? "postgresql://postgres:postgres@127.0.0.1:5432/postgres";
+const COMPOSE_URL =
+  process.env.DEMO_DB_URL ?? "postgresql://postgres:postgres@127.0.0.1:5432/postgres";
 const TENANT_NAME = "Demo Tenant";
 
 export async function seed({ log = console.log } = {}) {
@@ -22,11 +23,14 @@ export async function seed({ log = console.log } = {}) {
   // 2. Demo tenant + fresh ingest key (only write access exists anywhere).
   const pool = new pg.Pool({ connectionString: COMPOSE_URL });
   try {
-    const tenant = (
-      await pool.query("SELECT tenant_id FROM tenants WHERE name = $1", [TENANT_NAME])
-    ).rows[0]?.tenant_id ??
-      (await pool.query("INSERT INTO tenants (name) VALUES ($1) RETURNING tenant_id", [TENANT_NAME]))
-        .rows[0].tenant_id;
+    const tenant =
+      (await pool.query("SELECT tenant_id FROM tenants WHERE name = $1", [TENANT_NAME]))
+        .rows[0]?.tenant_id ??
+      (
+        await pool.query("INSERT INTO tenants (name) VALUES ($1) RETURNING tenant_id", [
+          TENANT_NAME,
+        ])
+      ).rows[0].tenant_id;
 
     // Rotate: revoke stale demo keys so leaked copies stop working.
     await pool.query(

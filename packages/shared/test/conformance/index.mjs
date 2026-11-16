@@ -45,7 +45,10 @@ export function fakeServer() {
   };
   function commit(body, out = {}) {
     for (const e of body.events) {
-      if (store.has(e.event_id)) { out.accepted?.push(e.event_id); continue; }
+      if (store.has(e.event_id)) {
+        out.accepted?.push(e.event_id);
+        continue;
+      }
       if (e.name === "invalid_event") {
         out.rejected?.push({ event_id: e.event_id, reason: "bad_name" });
         continue;
@@ -91,7 +94,10 @@ export function fakeLocks() {
   return {
     request: (name, cb) => {
       const run = chain.then(cb);
-      chain = run.then(() => undefined, () => undefined);
+      chain = run.then(
+        () => undefined,
+        () => undefined,
+      );
       return run;
     },
   };
@@ -164,7 +170,9 @@ export function conformance(createEnv) {
         const rec = env.sdk.__internal.session();
         if (rec.seq !== 3) throw new Error(`new session seq = ${rec.seq}, want 3`);
         if (env.server.store.size !== 3 + 4_997 + 3) {
-          throw new Error(`stored ${env.server.store.size} events, expected ${3 + 4_997 + 3}`);
+          throw new Error(
+            `stored ${env.server.store.size} events, expected ${3 + 4_997 + 3}`,
+          );
         }
       },
     },
@@ -176,7 +184,8 @@ export function conformance(createEnv) {
         if (env.sdk.__internal.session() !== null) {
           throw new Error("heartbeat created a session");
         }
-        if (env.server.batches.length !== 0) throw new Error("heartbeat sent while hidden");
+        if (env.server.batches.length !== 0)
+          throw new Error("heartbeat sent while hidden");
       },
     },
     {
@@ -187,8 +196,11 @@ export function conformance(createEnv) {
         env.clock.now += 6 * 60 * 1000;
         await env.sdk.track("heartbeat");
         const rec = env.sdk.__internal.session();
-        if (rec.last_seen_at !== before) throw new Error("heartbeat extended the session");
-        const stored = [...env.server.store.values()].filter((e) => e.name === "heartbeat");
+        if (rec.last_seen_at !== before)
+          throw new Error("heartbeat extended the session");
+        const stored = [...env.server.store.values()].filter(
+          (e) => e.name === "heartbeat",
+        );
         if (stored.length !== 0) throw new Error("idle heartbeat emitted");
       },
     },
@@ -201,11 +213,13 @@ export function conformance(createEnv) {
         env.clock.now += 1000;
         await env.sdk.track("good_two");
         await env.sdk.flush();
-        if (env.sdk.__internal.queued().length !== 0) throw new Error("queue did not drain");
+        if (env.sdk.__internal.queued().length !== 0)
+          throw new Error("queue did not drain");
         const names = [...env.server.store.values()].map((e) => e.name);
         if (names.includes("invalid_event")) throw new Error("invalid event stored");
         // session_start + page_view + good_one + good_two (invalid removed)
-        if (names.length !== 4) throw new Error(`stored ${names.length} valid events, expected 4`);
+        if (names.length !== 4)
+          throw new Error(`stored ${names.length} valid events, expected 4`);
       },
     },
     {
@@ -218,11 +232,14 @@ export function conformance(createEnv) {
         await env.sdk.flush();
         const firstSet = [...env.server.store.values()].map((e) => e.event_id).sort();
         if (firstSet.length !== 3) throw new Error(`stored ${firstSet.length}, want 3`);
-        const sentIds = env.server.batches.map((b) => b.events.map((e) => e.event_id).sort());
+        const sentIds = env.server.batches.map((b) =>
+          b.events.map((e) => e.event_id).sort(),
+        );
         if (JSON.stringify(sentIds[0]) !== JSON.stringify(sentIds[2])) {
           throw new Error("retry did not replay the same event ids");
         }
-        if (env.sdk.__internal.queued().length !== 0) throw new Error("queue did not drain");
+        if (env.sdk.__internal.queued().length !== 0)
+          throw new Error("queue did not drain");
       },
     },
     {
@@ -234,11 +251,14 @@ export function conformance(createEnv) {
         await sleep(10); // let the (hung) request go out
         env.restart(); // kill: no ack, nothing dequeued
         if (env.sdk.__internal.queued().length !== 3) {
-          throw new Error(`queued ${env.sdk.__internal.queued().length} after kill, want 3`);
+          throw new Error(
+            `queued ${env.sdk.__internal.queued().length} after kill, want 3`,
+          );
         }
         env.server.status = 200;
         await env.sdk.flush();
-        if (env.server.store.size !== 3) throw new Error("stored set changed across the kill");
+        if (env.server.store.size !== 3)
+          throw new Error("stored set changed across the kill");
       },
     },
     {
@@ -263,9 +283,11 @@ export function conformance(createEnv) {
         env.server.status = (i) => (i === 1 ? 401 : 200);
         await env.sdk.track("click");
         await env.sdk.flush();
-        if (env.sdk.__internal.queued().length !== 3) throw new Error("401 dropped the queue");
+        if (env.sdk.__internal.queued().length !== 3)
+          throw new Error("401 dropped the queue");
         await env.sdk.flush();
-        if (env.sdk.__internal.queued().length !== 0) throw new Error("queue not drained");
+        if (env.sdk.__internal.queued().length !== 0)
+          throw new Error("queue not drained");
       },
     },
     {
@@ -274,8 +296,10 @@ export function conformance(createEnv) {
         env.server.status = 400;
         await env.sdk.track("click");
         await env.sdk.flush();
-        if (env.sdk.__internal.queued().length !== 0) throw new Error("queue kept after 400");
-        if (env.server.batches.length !== 1) throw new Error(`looped: ${env.server.batches.length} batches`);
+        if (env.sdk.__internal.queued().length !== 0)
+          throw new Error("queue kept after 400");
+        if (env.server.batches.length !== 1)
+          throw new Error(`looped: ${env.server.batches.length} batches`);
       },
     },
     {
@@ -293,8 +317,11 @@ export function conformance(createEnv) {
         for (let i = 0; i < 5 && env.sdk.__internal.droppedPending() > 0; i++) {
           await env.sdk.flush();
         }
-        if (env.sdk.__internal.droppedPending() !== 0) throw new Error("drop report did not converge");
-        const reports = [...env.server.store.values()].filter((e) => e.name === "sdk_dropped");
+        if (env.sdk.__internal.droppedPending() !== 0)
+          throw new Error("drop report did not converge");
+        const reports = [...env.server.store.values()].filter(
+          (e) => e.name === "sdk_dropped",
+        );
         if (reports.length === 0) throw new Error("sdk_dropped not reported");
         const total = reports.reduce((a, r) => a + r.props.dropped, 0);
         if (total < pending) throw new Error(`reported ${total}, counted ${pending}`);
@@ -309,7 +336,8 @@ export function conformance(createEnv) {
       run: async (env) => {
         await env.sdk.track("click");
         env.sdk.setConsent(false);
-        if (env.sdk.__internal.queued().length !== 0) throw new Error("queue not cleared");
+        if (env.sdk.__internal.queued().length !== 0)
+          throw new Error("queue not cleared");
         if (env.sdk.__internal.session() !== null) throw new Error("session not cleared");
         await env.sdk.track("click");
         if (env.server.batches.length !== 0) throw new Error("sent after consent off");
@@ -326,9 +354,11 @@ export function conformance(createEnv) {
           second.track("click"),
         ]);
         const seqs = [...env.server.store.values()].map((e) => e.seq);
-        if (new Set(seqs).size !== seqs.length) throw new Error("duplicate seq across contexts");
+        if (new Set(seqs).size !== seqs.length)
+          throw new Error("duplicate seq across contexts");
         const times = [...env.server.store.values()].map((e) => e.time);
-        if (new Set(times).size !== times.length) throw new Error("duplicate time across contexts");
+        if (new Set(times).size !== times.length)
+          throw new Error("duplicate time across contexts");
       },
     },
   ];

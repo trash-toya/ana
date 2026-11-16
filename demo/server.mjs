@@ -21,7 +21,8 @@ const ROOT = path.resolve(HERE, "..");
 const SDK_DIST = path.join(ROOT, "packages/sdk-web/dist");
 
 const INGEST = process.env.DEMO_INGEST_URL ?? "http://127.0.0.1:3001";
-const DB_URL = process.env.DEMO_DB_URL ?? "postgresql://postgres:postgres@127.0.0.1:5432/postgres";
+const DB_URL =
+  process.env.DEMO_DB_URL ?? "postgresql://postgres:postgres@127.0.0.1:5432/postgres";
 const PORT = Number(process.env.DEMO_PORT ?? 8081); // 8080 is commonly taken (Dozzle etc.)
 
 const pool = new pg.Pool({ connectionString: DB_URL, max: 2 });
@@ -83,7 +84,10 @@ async function state() {
 
 function sendJson(res, status, obj) {
   const body = JSON.stringify(obj, (_k, v) => (typeof v === "bigint" ? Number(v) : v));
-  res.writeHead(status, { "content-type": "application/json", "content-length": Buffer.byteLength(body) });
+  res.writeHead(status, {
+    "content-type": "application/json",
+    "content-length": Buffer.byteLength(body),
+  });
   res.end(body);
 }
 
@@ -94,7 +98,10 @@ const server = http.createServer(async (req, res) => {
   try {
     // Config: the freshly minted demo key (write-only, public).
     if (pathname === "/demo/config") {
-      return sendJson(res, 200, { apiKey: process.env.DEMO_API_KEY ?? "", endpoint: "/v1/events" });
+      return sendJson(res, 200, {
+        apiKey: process.env.DEMO_API_KEY ?? "",
+        endpoint: "/v1/events",
+      });
     }
 
     // Live SQL state for the panel.
@@ -126,19 +133,25 @@ const server = http.createServer(async (req, res) => {
 
     // Static: demo/index.html at /, SDK dist under /sdk/.
     let file = null;
-    if (pathname === "/" || pathname === "/index.html") file = path.join(HERE, "index.html");
+    if (pathname === "/" || pathname === "/index.html")
+      file = path.join(HERE, "index.html");
     else if (pathname.startsWith("/sdk/")) {
       file = path.normalize(path.join(SDK_DIST, pathname.slice("/sdk/".length)));
       if (!file.startsWith(SDK_DIST)) return sendJson(res, 403, { error: "forbidden" });
     }
     if (file && existsSync(file) && statSync(file).isFile()) {
-      res.writeHead(200, { "content-type": MIME[path.extname(file)] ?? "application/octet-stream" });
+      res.writeHead(200, {
+        "content-type": MIME[path.extname(file)] ?? "application/octet-stream",
+      });
       return createReadStream(file).pipe(res);
     }
 
     sendJson(res, 404, { error: "not_found", path: pathname });
   } catch (err) {
-    sendJson(res, 502, { error: "demo_server_error", message: String(err?.message ?? err) });
+    sendJson(res, 502, {
+      error: "demo_server_error",
+      message: String(err?.message ?? err),
+    });
   }
 });
 

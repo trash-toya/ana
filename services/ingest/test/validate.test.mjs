@@ -1,10 +1,6 @@
-import test from "node:test";
+import { test } from "vitest";
 import assert from "node:assert/strict";
-import {
-  EnvelopeError,
-  assembleOutcomes,
-  validateBatch,
-} from "../dist/validate.js";
+import { EnvelopeError, assembleOutcomes, validateBatch } from "../dist/validate.js";
 
 const SESSION = "018f2b00-0000-7000-8000-0000000000c7";
 const RECEIVED = new Date("2026-11-15T12:00:00.000Z");
@@ -121,7 +117,9 @@ test("bad name → rejected bad_name", () => {
 test("props violations → rejected props_too_large", () => {
   const out = validateBatch(
     env([
-      ev({ props: Object.fromEntries(Array.from({ length: 21 }, (_, i) => [`k${i}`, 1])) }),
+      ev({
+        props: Object.fromEntries(Array.from({ length: 21 }, (_, i) => [`k${i}`, 1])),
+      }),
       ev({ props: { s: "x".repeat(4100) } }),
       ev({ props: { a: { b: { c: 1 } } } }), // depth 3
     ]),
@@ -289,7 +287,10 @@ test("assembleOutcomes maps the function result onto the ledger", () => {
 test("an ID the function did not report is an accepted duplicate", () => {
   const out = validateBatch(env([ev()]), CTX);
   const assembled = assembleOutcomes(out, {
-    stored: [], dups: [], capped: [], conflicts: [],
+    stored: [],
+    dups: [],
+    capped: [],
+    conflicts: [],
   });
   assert.equal(assembled.accepted.length, 1);
   assert.equal(assembled.rejected.length, 0);
@@ -300,10 +301,20 @@ test("in-batch exact dups mirror the first occurrence's outcome", () => {
   const twin = { ...e1, props: { a: 1 } };
   const out = validateBatch(env([e1, twin]), CTX);
 
-  const stored = assembleOutcomes(out, { stored: [e1.event_id], dups: [], capped: [], conflicts: [] });
+  const stored = assembleOutcomes(out, {
+    stored: [e1.event_id],
+    dups: [],
+    capped: [],
+    conflicts: [],
+  });
   assert.deepEqual(stored.accepted, [e1.event_id]); // one entry per ID
 
-  const capped = assembleOutcomes(out, { stored: [], dups: [], capped: [e1.event_id], conflicts: [] });
+  const capped = assembleOutcomes(out, {
+    stored: [],
+    dups: [],
+    capped: [e1.event_id],
+    conflicts: [],
+  });
   assert.deepEqual(capped.rejected, [
     { event_id: e1.event_id, reason: "session_capped" }, // one entry per ID
   ]);
@@ -314,10 +325,13 @@ test("in-batch exact dups mirror the first occurrence's outcome", () => {
   const oldTwin = { ...old };
   const out2 = validateBatch(env([old, oldTwin]), CTX);
   assert.equal(out2.rows.length, 0);
-  const assembled = assembleOutcomes(out2, { stored: [], dups: [], capped: [], conflicts: [] });
-  assert.deepEqual(assembled.rejected, [
-    { event_id: old.event_id, reason: "too_old" },
-  ]);
+  const assembled = assembleOutcomes(out2, {
+    stored: [],
+    dups: [],
+    capped: [],
+    conflicts: [],
+  });
+  assert.deepEqual(assembled.rejected, [{ event_id: old.event_id, reason: "too_old" }]);
   assert.equal(assembled.accepted.length, 0);
 });
 
@@ -337,14 +351,15 @@ test("contract invariant: every submitted ID appears in exactly one list", () =>
   // distinct IDs (twin and e4 share e2's); the first occurrence (e2, stored)
   // decides, so the later conflicting variant folds into the same outcome
   const all = [...new Set([e1, e2, e3, e4].map((e) => e.event_id))].sort();
-  const reported = [...assembled.accepted, ...assembled.rejected.map((r) => r.event_id)].sort();
+  const reported = [
+    ...assembled.accepted,
+    ...assembled.rejected.map((r) => r.event_id),
+  ].sort();
   assert.deepEqual(reported, all);
   // and no double reporting
   assert.equal(new Set(reported).size, reported.length);
   assert.deepEqual(assembled.accepted, [e1.event_id, e2.event_id]);
-  assert.deepEqual(assembled.rejected, [
-    { event_id: e3.event_id, reason: "too_old" },
-  ]);
+  assert.deepEqual(assembled.rejected, [{ event_id: e3.event_id, reason: "too_old" }]);
 });
 
 // ---------------------------------------------------------------------------
@@ -354,10 +369,7 @@ test("contract invariant: every submitted ID appears in exactly one list", () =>
 test("sessionless events need no anon_id; session-bound ones do", () => {
   const { anon_id, ...noAnon } = env([]);
   const loose = ev({ session_id: null });
-  const out = validateBatch(
-    { ...noAnon, events: [loose] },
-    CTX,
-  );
+  const out = validateBatch({ ...noAnon, events: [loose] }, CTX);
   assert.equal(out.rows.length, 1);
   assert.equal(out.rows[0].session_id, null);
   assert.equal(out.rows[0].anon_id, null);

@@ -300,7 +300,10 @@ export function init(options: InitOptions): AnalyticsSdk {
    * record with FINAL counters, then persist (primary + mirror fallback).
    * Used by track() and by the pending-`sdk_dropped` report in flush().
    */
-  async function emitLocked(name: string, props?: Record<string, unknown>): Promise<void> {
+  async function emitLocked(
+    name: string,
+    props?: Record<string, unknown>,
+  ): Promise<void> {
     await state.mirrorReady; // mirror open + recovery before any persistence
     await withLock(browser.locks, async () => {
       const now = browser.now();
@@ -337,16 +340,26 @@ export function init(options: InitOptions): AnalyticsSdk {
         };
         const resumed = expired === "idle";
         const startProps = ctx ? { ...ctx.utm } : {};
-        extra = [
-          mintEvent(rec, "session_start", startProps, null, userId ?? null),
-        ];
+        extra = [mintEvent(rec, "session_start", startProps, null, userId ?? null)];
         if (name === "page_view") {
           extra.push(
-            mintEvent(rec, "page_view", { ...(resumed ? { resumed: true } : {}), ...emitProps }, ctx?.url ?? null, userId ?? null),
+            mintEvent(
+              rec,
+              "page_view",
+              { ...(resumed ? { resumed: true } : {}), ...emitProps },
+              ctx?.url ?? null,
+              userId ?? null,
+            ),
           );
         } else {
           extra.push(
-            mintEvent(rec, "page_view", resumed ? { resumed: true } : {}, ctx?.url ?? null, userId ?? null),
+            mintEvent(
+              rec,
+              "page_view",
+              resumed ? { resumed: true } : {},
+              ctx?.url ?? null,
+              userId ?? null,
+            ),
           );
           extra.push(mintEvent(rec, name, emitProps, ctx?.url ?? null, userId ?? null));
         }
@@ -540,7 +553,7 @@ function defaultStorage(): QueueStorage {
 }
 
 function defaultLocks(): Browser["locks"] {
-  return typeof navigator !== "undefined" ? navigator.locks ?? undefined : undefined;
+  return typeof navigator !== "undefined" ? (navigator.locks ?? undefined) : undefined;
 }
 
 function defaultFetch(): typeof fetch {
@@ -566,7 +579,8 @@ function defaultLifecycle(): Browser["lifecycle"] {
   const handlers = new Map<string, (e: Event) => void>();
   return {
     add(type, cb) {
-      const handler = (e: Event) => cb({ persisted: (e as PageTransitionEvent).persisted });
+      const handler = (e: Event) =>
+        cb({ persisted: (e as PageTransitionEvent).persisted });
       handlers.set(type, handler);
       if (type === "visibilitychange") document.addEventListener(type, handler);
       else window.addEventListener(type, handler);
@@ -581,10 +595,7 @@ function defaultLifecycle(): Browser["lifecycle"] {
   };
 }
 
-function ensureAnonId(
-  storage: QueueStorage,
-  now: () => number,
-): string {
+function ensureAnonId(storage: QueueStorage, now: () => number): string {
   const existing = storage.get(ANON_KEY);
   if (existing) return existing;
   const id = uuidv7(now(), randomBytes());
@@ -603,7 +614,15 @@ function jitterDelay(base: number, jitter: () => number): number {
 
 // Re-exports for the demo page and tests.
 export { SESSION_KEY, ANON_KEY, CONSENT_KEY, USER_KEY } from "./session.js";
-export { EVENT_PREFIX, readQueue, queueDepth, dropForQuota, isQuotaError, addDropped, takeDropped } from "./queue.js";
+export {
+  EVENT_PREFIX,
+  readQueue,
+  queueDepth,
+  dropForQuota,
+  isQuotaError,
+  addDropped,
+  takeDropped,
+} from "./queue.js";
 export { openMirror } from "./mirror.js";
 export type { EventMirror } from "./mirror.js";
 export { expiryReason } from "./session.js";

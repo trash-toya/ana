@@ -20,12 +20,10 @@ export const BOOTSTRAP_URL =
 const SCHEDULE_FILE = "0014_schedule.sql";
 
 export async function psqlFile(url, file, { cwd = ROOT } = {}) {
-  await execFileP("psql", [
-    url,
-    "-v", "ON_ERROR_STOP=1",
-    "-q",
-    "-f", file,
-  ], { cwd, maxBuffer: 32 * 1024 * 1024 });
+  await execFileP("psql", [url, "-v", "ON_ERROR_STOP=1", "-q", "-f", file], {
+    cwd,
+    maxBuffer: 32 * 1024 * 1024,
+  });
 }
 
 function quoteIdent(name) {
@@ -53,9 +51,9 @@ async function ensureDatabase(dbName) {
   const client = new pg.Client({ connectionString: adminUrl() });
   await client.connect();
   try {
-    const exists = await client.query(
-      "SELECT 1 FROM pg_database WHERE datname = $1", [dbName],
-    );
+    const exists = await client.query("SELECT 1 FROM pg_database WHERE datname = $1", [
+      dbName,
+    ]);
     if (exists.rowCount === 0) {
       await client.query(`CREATE DATABASE ${quoteIdent(dbName)}`);
     }
@@ -72,7 +70,8 @@ async function ensureDatabase(dbName) {
 export async function applyMigrations(dbName, { withSchedule = false } = {}) {
   await ensureDatabase(dbName);
   const url = urlForDb(dbName);
-  const files = fs.readdirSync(MIGRATIONS)
+  const files = fs
+    .readdirSync(MIGRATIONS)
     .filter((f) => f.endsWith(".sql"))
     .sort();
 
@@ -83,8 +82,11 @@ export async function applyMigrations(dbName, { withSchedule = false } = {}) {
   let applied;
   try {
     await ledger.query(
-      "CREATE TABLE IF NOT EXISTS _migrations (name text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())");
-    applied = new Set((await ledger.query("SELECT name FROM _migrations")).rows.map((r) => r.name));
+      "CREATE TABLE IF NOT EXISTS _migrations (name text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())",
+    );
+    applied = new Set(
+      (await ledger.query("SELECT name FROM _migrations")).rows.map((r) => r.name),
+    );
   } finally {
     await ledger.end();
   }
@@ -109,5 +111,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const withSchedule = process.argv.includes("--with-schedule");
   const dbName = process.env.SA_DB ?? "postgres";
   await applyMigrations(dbName, { withSchedule });
-  console.log(`migrations applied to ${dbName}${withSchedule ? " (+0014 schedule)" : ""}`);
+  console.log(
+    `migrations applied to ${dbName}${withSchedule ? " (+0014 schedule)" : ""}`,
+  );
 }

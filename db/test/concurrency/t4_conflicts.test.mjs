@@ -3,7 +3,7 @@
 //     fallback (DISTINCT ON). Either way: one event row, one hash, the loser rejected
 //     as conflicting_duplicate.
 //   * Across two requests: the first commit wins; the retry is conflicting_duplicate.
-import { test } from "node:test";
+import { test } from "vitest";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import { withTestDb, ingest, event, sha } from "../harness.mjs";
@@ -14,9 +14,14 @@ const sessionId = randomUuid();
 
 function row(eventId, seq, url, ord) {
   const ev = event({
-    tenantId, sessionId, eventId, seq,
+    tenantId,
+    sessionId,
+    eventId,
+    seq,
     time: new Date(Date.UTC(2026, 10, 15, 12, 0, 0)),
-    name: "page_view", cat: "e", url,
+    name: "page_view",
+    cat: "e",
+    url,
   });
   ev.ord = ord;
   return ev;

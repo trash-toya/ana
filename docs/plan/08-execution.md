@@ -247,11 +247,13 @@ state with no row for an unknown hash. Full suite 256/256 (45 files).
 
 P4-2 evidence: `.github/workflows/ci.yml` runs on every push/PR with the pinned
 `timescale/timescaledb-ha:pg17` service container and `DATABASE_URL` matching the
-harness default. The chain is lint → format:check → typecheck → build →
+harness default. The chain is lint → format:check → wait for Postgres → build →
+typecheck (build-first: workspace imports resolve through `dist/*.d.ts`) →
 `db:migrate` twice (idempotency, `_migrations` ledger asserted at 16) →
 **cross-tenant isolation gate** (`pnpm exec vitest run db/test/rls`, fail-fast,
-named step) → full `pnpm test`. The gate is also part of the full suite, so the
-build fails if isolation regresses. New scripts: `test:db` (vitest run db, 21
+named step) → full `pnpm test` (2 workers under `CI=1` to stay inside the service
+container's `max_connections=100`). The gate is also part of the full suite, so the
+build fails if isolation regresses. New scripts: `test:db` (vitest run db/test, 21
 files) and `db:migrate` (the migration runner CLI).
 
 P4-5 (LB) can land before P4-4; the drill needs the LB, so treat the two as one increment

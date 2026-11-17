@@ -14,5 +14,9 @@ export default defineConfig({
     ],
     testTimeout: 30_000,
     hookTimeout: 30_000,
+    // CI service containers keep Postgres's default max_connections=100 (unlike
+    // ops/docker-compose.yml's 300). Each DB test file opens a pool of up to 40,
+    // so two workers keep the whole run comfortably inside that limit.
+    maxWorkers: process.env.CI ? 2 : undefined,
   },
 });

@@ -10,7 +10,7 @@
     "lint": "oxlint .",
     "format": "oxfmt --write .",
     "format:check": "oxfmt --check .",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "pnpm -r build && tsc -p tsconfig.json --noEmit",
     "build": "pnpm -r build",
     "test": "pnpm -r build && vitest run",
     "test:shared": "pnpm -F @session-analytics/shared build && vitest run packages/shared/test",

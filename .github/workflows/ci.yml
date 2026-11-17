@@ -60,11 +60,25 @@ jobs:
       - name: Format check
         run: pnpm format:check
 
-      - name: Typecheck
-        run: pnpm typecheck
+      # Service-container health checks are usually sufficient; this loop makes
+      # a slow first start a wait instead of a flaky migration failure.
+      - name: Wait for Postgres
+        run: |
+          for i in $(seq 1 30); do
+            pg_isready -h 127.0.0.1 -p 5432 -U postgres && exit 0
+            sleep 2
+          done
+          echo "Postgres did not become ready" >&2
+          exit 1
 
       - name: Build
         run: pnpm build
+
+      # typecheck compiles all package sources and resolves workspace imports
+      # through each package's dist/*.d.ts, so it needs the build above (and it
+      # re-runs the build itself, so a fresh clone's `pnpm typecheck` works too).
+      - name: Typecheck
+        run: pnpm typecheck
 
       - name: Migrations apply in order and re-run idempotently (db:migrate)
         run: |

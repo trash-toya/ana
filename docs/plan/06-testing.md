@@ -130,9 +130,19 @@ every PR, with the pinned `timescale/timescaledb-ha:pg17` service container
 (same image as `ops/docker-compose.yml`):
 
 ```
-lint → format:check → typecheck → build → db:migrate (×2, idempotency) →
-isolation gate (t29, fail-fast) → full suite (T1–T9, invariants, property)
+lint → format:check → wait for Postgres → build → typecheck → db:migrate (×2,
+idempotency) → isolation gate (t29, fail-fast) → full suite (T1–T9, invariants,
+property)
 ```
+
+- **Build before typecheck**: the root `typecheck` compiles all package sources
+  and resolves workspace imports through each package's `dist/*.d.ts`, so it
+  needs an emit first. `pnpm typecheck` runs `pnpm -r build` itself, so a fresh
+  clone works either way; CI still shows the build explicitly.
+- **Two workers in CI**: service containers keep Postgres's default
+  `max_connections=100` (Compose raises it to 300), and each DB test file opens
+  a pool of up to 40 — `vitest.config.ts` caps `maxWorkers` at 2 when `CI` is
+  set so the suite cannot exhaust connections.
 
 - The **cross-tenant isolation gate** is a named, fail-fast CI step
   (`pnpm exec vitest run db/test/rls`): the build fails if isolation regresses

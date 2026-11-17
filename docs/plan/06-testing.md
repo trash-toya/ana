@@ -155,7 +155,8 @@ property)
   required check for every PR touching `db/` by construction.
 - The property test runs the same seed set in CI; a longer nightly seed set is
   a staging-Compose concern (P4-7), not a PR gate.
-- T11 is not in PR CI; it runs on the staging Compose stack during drills.
+- T11 is not in PR CI; `pnpm test:ha` runs it on the HA drill stack (`ops/ha/`, Docker)
+  during drills. It measures RPO/RTO and job resume after fencing + promotion.
 
 ## Load tests (P4, targets from blueprint section 10)
 

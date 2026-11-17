@@ -114,6 +114,15 @@ Timescale jobs live in the catalog and replicate, but the scheduler must be conf
 the standby; after every failover drill, verify archive/cleanup/rollup resumed with no
 backlog.
 
+**P4-4 drill (measured):** `pnpm test:ha` runs the fencing-first sequence on the pinned
+image (`ops/ha/`, primary + synchronous standby + PgBouncer): SIGKILL the primary,
+`pg_promote()`, clear the inherited `synchronous_standby_names` (a promoted single node
+cannot satisfy it), repoint PgBouncer, then verify every acknowledged event and run a
+job. Local results (2026-11-17): RPO 0 (0 of 2,184–2,275 acknowledged events missing),
+RTO 21–43 s against the 2-minute target, 4/4 jobs present. Production election/fencing
+remains Patroni + etcd (D39); the procedure is
+[`ops/runbooks/failover.md`](../../ops/runbooks/failover.md).
+
 ## Alerting thresholds (initial, tune after P4)
 
 | Alert                    | Threshold                                                                                                                      |

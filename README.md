@@ -12,14 +12,14 @@ billing or audit events.
 
 ## Status
 
-| Phase | Theme                        | State                                                                |
-| ----- | ---------------------------- | -------------------------------------------------------------------- |
-| P0    | Database core                | ✅ closed (gates G0/G1B)                                             |
-| P1    | Ingest API + minimal web SDK | ✅ closed (G1)                                                       |
-| P2    | Durable clients              | ✅ closed (G2)                                                       |
-| P3    | Rollups and dashboards       | ✅ closed (G3)                                                       |
-| P4    | Production hardening         | 🚧 in progress — roles/RLS, CI isolation gate, abuse protection done |
-| P5    | Optional scaling             | ⏸ not approved; each item gated on a stated trigger                  |
+| Phase | Theme                        | State                                                                      |
+| ----- | ---------------------------- | -------------------------------------------------------------------------- |
+| P0    | Database core                | ✅ closed (gates G0/G1B)                                                   |
+| P1    | Ingest API + minimal web SDK | ✅ closed (G1)                                                             |
+| P2    | Durable clients              | ✅ closed (G2)                                                             |
+| P3    | Rollups and dashboards       | ✅ closed (G3)                                                             |
+| P4    | Production hardening         | 🚧 in progress — roles/RLS, CI gate, abuse protection, failover drill done |
+| P5    | Optional scaling             | ⏸ not approved; each item gated on a stated trigger                        |
 
 The full plan, decisions and evidence live in [`docs/plan/`](docs/plan/README.md);
 every intentional difference from the source blueprint is recorded with its covering
@@ -68,6 +68,7 @@ packages/
   sdk-server/       server SDK (session bootstrap/resume)
 ops/
   docker-compose.yml  pinned TimescaleDB + PgBouncer
+  ha/                 failover drill stack (T11: primary + sync standby + PgBouncer)
   loadtest/           P0/P3 benchmarks
   runbooks/           operational runbooks
 demo/                 end-to-end demo (seeded tenant + browser page)
@@ -120,16 +121,18 @@ tenant inside the database (`resolve_api_key()`), never from the request.
 ```bash
 pnpm test                  # everything (273 tests, 48 files, real TimescaleDB)
 pnpm test:db               # database suites: T1–T9, invariants, property, RLS
+pnpm test:ha               # T11 failover drill (needs Docker; not in CI)
 pnpm test:db:concurrency   # T1–T9 only
 pnpm test:property         # randomized invariant test (short seed set)
 pnpm lint && pnpm typecheck && pnpm format:check
 ```
 
 Every invariant in the plan is enforced by a test that runs against the pinned image,
-not a mock. The cross-tenant isolation suite (`db/test/rls`) is a named, fail-fast CI
-step: the build fails if isolation regresses. CI runs lint → format → typecheck →
-build → migrate (×2) → isolation gate → full suite on every push and PR
-(`.github/workflows/ci.yml`).
+not a mock. The failover drill measures RPO/RTO on the real synchronous standby stack
+(`pnpm test:ha`: RPO 0, RTO well under the 2-minute target). The cross-tenant isolation
+suite (`db/test/rls`) is a named, fail-fast CI step: the build fails if isolation
+regresses. CI runs lint → format → typecheck → build → migrate (×2) → isolation gate →
+full suite on every push and PR (`.github/workflows/ci.yml`).
 
 ## Documentation
 

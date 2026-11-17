@@ -1,0 +1,113 @@
+# P4-4 HA drill stack: primary + synchronous streaming standby + PgBouncer.
+#
+# This stack exists to run T11 (docs/plan/06-testing.md) — it is NOT the
+# production orchestrator. Patroni/etcd own leader election and fencing in
+# production (07-operations.md); the drill performs the same fencing-first
+# sequence explicitly and measures RPO/RTO. See docs/plan/DEVIATIONS.md D39.
+#
+#   docker compose -f ops/ha/docker-compose.yml up -d
+#   node ops/ha/t11-drill.mjs          # full drill + teardown
+#
+# Host ports: primary 55432, standby 55433, pgbouncer 56432 (the base stack
+# keeps 5432/6432). The project name is separate so both can run side by side.
+name: sa-ha
+
+services:
+  primary:
+    image: timescale/timescaledb-ha:pg17
+    environment:
+      POSTGRES_HOST_AUTH_METHOD: trust
+    command:
+      - postgres
+      - -c
+      - wal_level=replica
+      - -c
+      - max_wal_senders=10
+      - -c
+      - max_replication_slots=10
+      # Sync replication is enabled by the drill once the standby is streaming
+      # (`ALTER SYSTEM SET synchronous_standby_names='*'`): enabling it at cold
+      # start would make every migration commit wait for a standby that does not
+      # exist yet.
+      - -c
+      - synchronous_commit=on
+      - -c
+      - wal_sender_timeout=10s
+      - -c
+      - shared_buffers=512MB
+      - -c
+      - max_connections=200
+      - -c
+      - timescaledb.max_background_workers=4
+    ports:
+      - "127.0.0.1:55432:5432"
+    volumes:
+      - primary_data:/home/postgres/pgdata
+      - ./primary-init.sh:/docker-entrypoint-initdb.d/020_replication.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 2s
+      timeout: 3s
+      retries: 60
+      start_period: 10s
+    restart: "no"
+
+  standby:
+    image: timescale/timescaledb-ha:pg17
+    environment:
+      POSTGRES_HOST_AUTH_METHOD: trust
+    entrypoint: ["/ha/standby-entrypoint.sh"]
+    command:
+      - postgres
+      - -c
+      - hot_standby=on
+      - -c
+      - max_connections=200
+      - -c
+      - timescaledb.max_background_workers=4
+    ports:
+      - "127.0.0.1:55433:5432"
+    volumes:
+      - standby_data:/home/postgres/pgdata
+      - ./standby-entrypoint.sh:/ha/standby-entrypoint.sh:ro
+    depends_on:
+      primary:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 2s
+      timeout: 3s
+      retries: 60
+      start_period: 10s
+    restart: "no"
+
+  # The virtual endpoint. `DB_HOST` is substituted at start: the drill recreates
+  # this container with DB_HOST=standby after promotion (production points the
+  # same env at a DNS name / VIP that follows the leader).
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    environment:
+      DB_HOST: ${DB_HOST:-primary}
+      DB_PORT: "5432"
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: postgres
+      AUTH_TYPE: scram-sha-256
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: "500"
+      DEFAULT_POOL_SIZE: "20"
+      ADMIN_USERS: postgres
+      LISTEN_PORT: "6432"
+      # node-postgres sends statement_timeout as a startup parameter; PgBouncer
+      # in transaction mode must ignore it (the drill client sets it per pool).
+      IGNORE_STARTUP_PARAMETERS: extra_float_digits,options,statement_timeout
+    ports:
+      - "127.0.0.1:56432:6432"
+    depends_on:
+      primary:
+        condition: service_healthy
+    restart: "no"
+
+volumes:
+  primary_data:
+  standby_data:

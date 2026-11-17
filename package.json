@@ -23,6 +23,7 @@
     "db:ping": "node db/test/scripts/db-ping.mjs",
     "db:migrate": "node db/test/scripts/migrate.mjs",
     "test:db": "vitest run db/test",
+    "test:ha": "node ops/ha/t11-drill.mjs",
     "test:db:concurrency": "vitest run db/test/concurrency",
     "test:property": "vitest run db/test/property",
     "bench:p0": "node ops/loadtest/p0-bench.mjs",

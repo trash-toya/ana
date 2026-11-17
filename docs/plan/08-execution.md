@@ -279,6 +279,26 @@ not at 100, ignores names older than the receipt window) and
 `db/test/scripts/api-keys.test.mjs` (policy caps, per-tenant isolation, concurrent create
 race, ambiguous fingerprint revokes nothing, CLI parsing). Full suite 273/273 (48 files).
 
+P4-4 evidence (D39): `ops/ha/` is an executable T11 drill on the pinned image.
+`docker-compose.yml` (project `sa-ha`, host ports 55432/55433/56432) runs the primary
+(`wal_level=replica`, `synchronous_commit=on`), a streaming standby bootstrapped with
+`pg_basebackup -R`, and PgBouncer as the virtual endpoint; `primary-init.sh` admits
+replication from the compose network (the image's generated hba allows only localhost),
+and synchronous replication is enabled after the standby is streaming
+(`synchronous_standby_names='*'`, `sync_state=sync`), because enabling it at cold start
+would block the first migration commit. `t11-drill.mjs` (`pnpm test:ha`) migrates with
+the 0014 schedule, drives 8 writers through PgBouncer, then fences the primary with
+SIGKILL, calls `pg_promote()`, resets the inherited `synchronous_standby_names` (a
+promoted single node cannot satisfy it), repoints PgBouncer with `DB_HOST=standby`, and
+verifies every acknowledged event plus a Timescale job. Measured on 2026-11-17:
+**RPO 0** (2,184 and 2,275 acknowledged events across two runs, 0 missing), **RTO
+21–43 s** against the 2-minute target, 4/4 scheduled jobs present and
+`archive_sessions()` executed on the promoted node. It is not in PR CI (needs Docker;
+06-testing.md). Production election/fencing remains Patroni+etcd — D39 records why the
+repo ships the drill rather than an untested controller — and
+`ops/runbooks/failover.md` is the fencing-first procedure (fence → promote → clear sync
+list → move endpoint → verify jobs → rebuild a standby).
+
 P4-5 (LB) can land before P4-4; the drill needs the LB, so treat the two as one increment
 even though the IDs stay stable.
 

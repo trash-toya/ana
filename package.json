@@ -26,13 +26,15 @@
     "test:db:concurrency": "vitest run db/test/concurrency",
     "test:property": "vitest run db/test/property",
     "bench:p0": "node ops/loadtest/p0-bench.mjs",
+    "bench:p3": "pnpm -F @session-analytics/dashboard build && node ops/loadtest/p3-bench.mjs",
     "prepare": "husky"
   },
   "nano-staged": {
     "*.{js,mjs,cjs,ts}": [
       "oxfmt --write",
       "oxlint --fix"
-    ]
+    ],
+    "!ops/**": []
   },
   "devDependencies": {
     "@types/express": "^5.0.6",

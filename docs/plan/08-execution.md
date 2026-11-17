@@ -157,6 +157,13 @@ daily tables carry none (T26c); `drop_chunks` (a function on 2.32, spiked) drops
 whole 1-day chunks with the 90-day boundary day retained, and the 5 y daily tier
 survives raw retention (T26d).
 | P3-6 | Dashboard performance pass                                                                                                                                                                                     | P3-4    | p95 under 500 ms with synthetic peak ingest                              |
+
+P3-6 evidence: `pnpm run bench:p3` (ops/loadtest/p3-bench.mjs), results in
+benchmarks/p3.md + p3-results.json — worst p95 across all endpoints, steady and
+under 200 ev/s background ingest, is **379.3 ms** (`POST /v1/funnels`); every
+rollup-backed endpoint is under 9 ms p95. Finding: the funnel's recursive CTE is
+the only non-trivial read (~300 ms at 10 k events); a `(tenant_id, name, time)`
+index or pre-materialized step counts is the P4-scale candidate — no change now.
 | P3-7 | Freshness gate (Notion §22): scheduled aggregation keeps dashboards within 1 h under load and after a backlog; publish last-updated/stale state                                                                | P3-2    | Backlog replay within the 1 h bound; freshness exposed to dashboards     |
 | P3-8 | Session-cap contract decision (Notion §22): keep synchronous guard enforcement while deferring only summary maintenance, or make the cap analytical — documented + tested before any async session association | G1B     | Written decision + tests; the hard 5,000 cap is never silently weakened  |
 

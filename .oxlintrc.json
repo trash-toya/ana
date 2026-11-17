@@ -1,6 +1,6 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "ignorePatterns": ["node_modules", "dist", "coverage", "docs", "ops"],
+  "ignorePatterns": ["node_modules", "dist", "coverage", "docs"],
   "env": { "node": true, "browser": true, "es2024": true },
   "categories": { "correctness": "error" },
   "rules": {

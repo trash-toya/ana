@@ -310,6 +310,68 @@ export function createApp(options: DashboardAppOptions): Express {
     }),
   );
 
+  app.get(
+    "/v1/freshness",
+    handle(async (_req, q, res) => {
+      const r = (await queries.freshness()(q)).rows[0];
+      const now = Date.now();
+      // Notion §22 gate: scheduled aggregation keeps dashboards within 1 h
+      // under load and after a backlog; the policy cadence is 15 min (0012).
+      // "Fresh" spans two cadence ticks: the current bucket is never
+      // materialized while it is open, plus one policy-tick of lag.
+      const GATE_MS = 3_600_000;
+      const CADENCE_MS = 900_000;
+      const FRESH_MS = 2 * CADENCE_MS;
+      // The debt per CAGG: how far behind the watermark this tenant's own
+      // latest completed data bucket sits, clamped at 0 (fully materialized).
+      const dataEnd = r?.data_bucket_end
+        ? Math.min(now, Date.parse(r.data_bucket_end))
+        : null;
+      const behind = (wm: string | null): number | null =>
+        wm !== null && dataEnd !== null ? Math.max(0, dataEnd - Date.parse(wm)) : null;
+      const state = (wm: string | null, debt: number | null): string => {
+        if (!r?.has_events) return "empty";
+        if (wm === null) return "stale"; // data exists, never materialized
+        if (debt !== null && debt <= FRESH_MS) return "fresh";
+        if (debt !== null && debt <= GATE_MS) return "degraded";
+        return "stale";
+      };
+      const eventsWm = r?.events_watermark ?? null;
+      const identityWm = r?.identity_watermark ?? null;
+      const eventsDebt = behind(eventsWm);
+      const identityDebt = behind(identityWm);
+      const eventsState = state(eventsWm, eventsDebt);
+      const identityState = state(identityWm, identityDebt);
+      const rank = ["empty", "fresh", "degraded", "stale"];
+      res.status(200).json({
+        // Watermark semantics (T24d/T27): buckets above the watermark are
+        // served live from the raw hypertable, so behind_ms bounds the
+        // scheduled aggregation's debt against data — never the newest data
+        // itself. The gate applies to it.
+        gate_ms: GATE_MS,
+        cadence_ms: CADENCE_MS,
+        caggs: [
+          {
+            view: "events_15m",
+            watermark: eventsWm,
+            behind_ms: eventsDebt,
+            state: eventsState,
+          },
+          {
+            view: "identity_15m",
+            watermark: identityWm,
+            behind_ms: identityDebt,
+            state: identityState,
+          },
+        ],
+        state:
+          rank.indexOf(eventsState) >= rank.indexOf(identityState)
+            ? eventsState
+            : identityState,
+      });
+    }),
+  );
+
   app.use(notFound);
   app.use(errorHandler);
   return app;

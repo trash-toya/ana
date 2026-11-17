@@ -21,6 +21,7 @@ created by one of these files; nothing is created by hand.
 | `0012_caggs.sql`            | `events_15m`, `identity_15m`, refresh policies, backfill calls (**created in P3-1**, see "Continuous aggregates")         | P3    |
 | `0013_daily.sql`            | `session_stats_daily`, `identity_daily`, `rollup_daily`                                                                   | P3    |
 | `0014_schedule.sql`         | `add_job` registrations for the jobs that exist in the phase (staging/production only; the test harness never applies it) | P0/P3 |
+| `0016_freshness.sql`        | `cagg_watermark_ts(text)` — CAGG watermark as a plain `timestamptz`, NULL until first refresh (**created in P3-7**)        | P3    |
 
 Rationale for the split: P0 must be runnable and testable on its own, so tenancy,
 event, identity, session and statistics tables arrive before RLS and rollups. RLS is

@@ -183,6 +183,7 @@ queries so the SQL is reviewable in one place:
 | `GET /v1/entry-pages?from&to`      | `sessions` + `events`                                                                                               | Example 4         |
 | `POST /v1/funnels` (steps in body) | `events`, ordered sequence                                                                                          | Example 5         |
 | `GET /v1/live`                     | `sessions_active` with `touch_bucket` range + 5-minute `last_seen_at`, excluding sessions that already have history | Example 6         |
+| `GET /v1/freshness`                | CAGG watermarks via `cagg_watermark_ts()` (0016), tenant data high-water mark                                        | Notion §22 gate   |
 
 Rules that hold for every endpoint:
 
@@ -228,6 +229,20 @@ requested tz.
   sequences do not count.
 - `GET /v1/live` → `{ live: true, count, sessions: [...] }` — the 5-minute
   `sessions_active` slice (D14) with the D18 anti-join, newest first.
+- `GET /v1/freshness` (P3-7) → `{ gate_ms, cadence_ms, caggs: [{ view, watermark,
+  behind_ms, state }], state }`. The watermark is the CAGG's materialization high
+  water mark (NULL when never refreshed). Measured on the pinned image (T27): the
+  watermark only advances over buckets that contain data — empty windows leave it at
+  the last materialized data bucket — so `behind_ms` is the **aggregation debt
+  against data** (the tenant's latest completed 15-min bucket end minus the
+  watermark, clamped at 0), not `now - watermark`: a quiet tenant whose data is
+  fully materialized reads `fresh`, not `stale`. State per CAGG: `empty` (tenant has
+  no events) → `fresh` (debt ≤ 2× the 15-min policy cadence; the open bucket is
+  never materialized plus one tick of policy lag) → `degraded` (≤ the 1-hour gate)
+  → `stale` (> the gate, or data exists while the CAGG was never materialized).
+  The top-level `state` is the worst of the two. Buckets above the watermark are
+  always served live (T24d/T27b) — the gate bounds the scheduled aggregation only;
+  `fresh` is the steady state of the 15-min policy, `stale` is the alert condition.
 
 ## Observability
 

@@ -165,6 +165,21 @@ rollup-backed endpoint is under 9 ms p95. Finding: the funnel's recursive CTE is
 the only non-trivial read (~300 ms at 10 k events); a `(tenant_id, name, time)`
 index or pre-materialized step counts is the P4-scale candidate — no change now.
 | P3-7 | Freshness gate (Notion §22): scheduled aggregation keeps dashboards within 1 h under load and after a backlog; publish last-updated/stale state                                                                | P3-2    | Backlog replay within the 1 h bound; freshness exposed to dashboards     |
+
+P3-7 evidence: `0016_freshness.sql` adds `cagg_watermark_ts(view)` (wraps
+`_timescaledb_functions.cagg_watermark`, normalizes the never-refreshed placeholder
+BC timestamp to NULL). T27 (`db/test/rollups/t27_freshness.test.mjs`): a 90-minute
+backlog (six 15-min buckets) is replayed by ONE refresh in well under the 1-hour gate
+with the watermark advancing past every backlog bucket and zero drift (T27a); the
+gate bounds materialization only — an event right now is fully visible above a
+2-hour-old watermark (T27b, T24d semantics); a never-refreshed CAGG reads NULL, not
+a BC timestamp (T27c). The dashboard service exposes `GET /v1/freshness`
+(services/dashboard/test/freshness.test.mjs: empty/fresh/degraded/stale/worst-of +
+auth). Measured watermark semantics: empty windows never advance the watermark, so
+`behind_ms` is the **aggregation debt against data** (tenant's latest completed
+bucket end − watermark, clamped at 0) rather than `now − watermark` — a quiet but
+fully-materialized tenant reads `fresh`; thresholds: fresh ≤ 2×cadence, degraded ≤
+gate (1 h), stale beyond (04-services.md §Response shapes).
 | P3-8 | Session-cap contract decision (Notion §22): keep synchronous guard enforcement while deferring only summary maintenance, or make the cap analytical — documented + tested before any async session association | G1B     | Written decision + tests; the hard 5,000 cap is never silently weakened  |
 
 **G3:** dashboards read only rollups + live slice; bounce rate non-zero and plausible;

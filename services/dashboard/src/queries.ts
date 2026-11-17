@@ -362,6 +362,37 @@ export function funnel(from: string, to: string, steps: string[]) {
 }
 
 // ---------------------------------------------------------------------------
+// GET /v1/freshness
+// ---------------------------------------------------------------------------
+
+/**
+ * The freshness gate (Notion §22, P3-7): each CAGG's materialization watermark
+ * plus the tenant's own data high-water mark. Empirically (pinned image), the
+ * watermark only advances over buckets that contain data — empty windows leave
+ * it at the last materialized data bucket — so "now - watermark" would read a
+ * quiet tenant as stale while its dashboards are exact. The published
+ * `behind_ms` is therefore the AGGREGATION DEBT relative to data: the tenant's
+ * latest completed 15-min bucket end minus the watermark, clamped at 0. The
+ * gate is that the scheduled aggregation keeps that debt within 1 h under load
+ * and after a backlog; buckets above the watermark are served live (T24d).
+ */
+export function freshness() {
+  return (q: TenantQuery) =>
+    q<{
+      events_watermark: string | null;
+      identity_watermark: string | null;
+      has_events: boolean;
+      data_bucket_end: string | null;
+    }>(
+      `SELECT cagg_watermark_ts('events_15m')   AS events_watermark,
+              cagg_watermark_ts('identity_15m') AS identity_watermark,
+              EXISTS (SELECT 1 FROM events)      AS has_events,
+              (SELECT time_bucket('15 minutes', max(time)) + INTERVAL '15 minutes'
+                 FROM events)                    AS data_bucket_end`,
+    );
+}
+
+// ---------------------------------------------------------------------------
 // GET /v1/live
 // ---------------------------------------------------------------------------
 

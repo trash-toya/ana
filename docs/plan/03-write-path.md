@@ -239,6 +239,48 @@ Compares the full row (sessions, all `ec_*`, duration, heartbeats, events) for
 `now()-50h .. now()-26h`, not just the session count. Any nonzero delta is a bug signal,
 not a maintenance step ([DEVIATIONS.md](DEVIATIONS.md) D12).
 
+## Session-cap contract decision (P3-8, Notion §22)
+
+**Decision: keep synchronous guard enforcement; defer only summary maintenance. The
+cap is never analytical.** Decided in P3, before any async session association work in
+P4; pinned by T28 (`db/test/concurrency/t28_cap_contract.test.mjs`).
+
+The hard 5,000-event cap is a **contract with three parties**: the SDK (rotates the
+session locally at 5,000 events, [05-sdks.md](05-sdks.md) — the server cap is the
+backstop, not the primary mechanism), the storage model (bounds per-session row
+counts and write amplification), and the rejection API (`session_capped`, a stable
+verdict that idempotent retries keep receiving, D1/D9). Those properties only hold if
+the quota decision is made atomically with the event insert — which is what
+`ingest_batch` does: `room = 5000 - guard.total_events` read under the guard row lock
+the identity step already takes. There is no extra lock, no extra round trip, and the
+measured cost is negligible ([benchmarks/p0.md](benchmarks/p0.md)).
+
+Why not the alternative (an analytical cap — count events per session after the fact
+and cap at reconciliation time): an analytical cap admits over-cap windows between
+insert and rebuild; its verdict is not stable (a retry's answer can change while
+summaries lag); it is O(rows) per decision; and it can be **silently weakened** by an
+async writer that inserts first and lets maintenance converge later. Rejected.
+
+Rules every future writer (P4 async session association, backfill tools, deletion
+repair) must hold, with the invariant that makes each auditable:
+
+1. **Single quota authority.** Quota comes from `session_guard.total_events` under the
+   row lock, inside the same transaction that inserts the event rows. The sanctioned
+   path is `ingest_batch()`. *(I3: guard matches events.)*
+2. **Summaries are deferrable, the guard is not.** `sessions_active`,
+   `sessions_history`, `session_stats_15m` and the daily rollups are rebuildable and
+   may lag — they are never inputs to the cap, and deleting or deferring them does
+   not change a quota decision. *(T28a: cap holds at exactly 5,000 with every summary
+   absent; T28c: a later maintenance pass converges them, I3 closes.)*
+3. **No direct event-row writers.** Any path that writes `events` rows for a session
+   without claiming room is a bug that must fail loudly in CI and alerts, never a
+   tolerated state. *(T28b: both writer shapes trip an invariant — events-without-guard
+   diverges (I3); guard-bumped-to-match exceeds the cap (I2).)*
+4. **Rejections stay stable.** Once `session_capped`, retries return `session_capped`
+   forever; capped events leave no dedupe claim (D1/D9). *(T28a retry assertion.)*
+5. **The cap never moves silently.** Raising or removing the 5,000 limit is a schema +
+   contract change (SDK rotation, docs, tests) — not a config knob.
+
 ## Failure semantics
 
 | Event                                         | What the client sees                                                                                                                                 | What the database shows                                           |

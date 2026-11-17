@@ -182,6 +182,16 @@ fully-materialized tenant reads `fresh`; thresholds: fresh ≤ 2×cadence, degra
 gate (1 h), stale beyond (04-services.md §Response shapes).
 | P3-8 | Session-cap contract decision (Notion §22): keep synchronous guard enforcement while deferring only summary maintenance, or make the cap analytical — documented + tested before any async session association | G1B     | Written decision + tests; the hard 5,000 cap is never silently weakened  |
 
+P3-8 evidence: the decision is written in [03-write-path.md §"Session-cap contract
+decision"] — keep synchronous guard enforcement (`room = 5000 - guard.total_events`
+under the row lock `ingest_batch` already takes), defer only summary maintenance, and
+never make the cap analytical. T28 pins it: the cap holds at exactly 5,000 with every
+summary absent (T28a, plus capped retries staying `session_capped`); both
+out-of-contract writer shapes trip an invariant loudly — events without a guard claim
+diverge guard/events (I3), a guard bumped to match exceeds the counter cap (I2)
+(T28b); after the deferred maintenance pass converges, I3 closes and history carries
+`total_events = 5000` (T28c).
+
 **G3:** dashboards read only rollups + live slice; bounce rate non-zero and plausible;
 approximate labels applied to HLL metrics.
 

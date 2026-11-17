@@ -24,7 +24,7 @@ is scheduled. It also **deletes every Timescale compression/retention policy job
 otherwise drop the chunks under the test mid-run (observed during P0). Test databases are
 fully hermetic — no background job mutates state.
 
-## Concurrency suite (T1–T11)
+## Concurrency suite (T1–T11, T28)
 
 Each test runs many workers in parallel, then asserts the invariants in section
 [02-data-model.md](02-data-model.md).
@@ -42,6 +42,7 @@ Each test runs many workers in parallel, then asserts the invariants in section
 | T9  | Terminate the backend mid-transaction (`pg_terminate_backend`), repeatedly, at every statement boundary                      | No partial effects: events, dedupe, guard and session agree                                                                                                            | P0    |
 | T10 | RN SDK: `shutdown()` with a request in flight then `init()`; batch with one invalid event                                    | No mutation after shutdown; valid events stored and removed; nothing lost                                                                                              | P2    |
 | T11 | Failover drill under load                                                                                                    | No acknowledged batch lost; jobs resume; measured RPO/RTO within targets                                                                                               | P4    |
+| T28 | P3-8 cap contract: summaries deferred/deleted, out-of-contract writers, reconcile convergence                                | Cap still stops at exactly 5,000 from the guard alone; capped retries stay `session_capped`; both direct-writer shapes trip I3/I2 loudly; maintenance pass converges (I3 = 0) | P3    |
 
 ### T1 detail (the test that proves the cap fix)
 

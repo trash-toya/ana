@@ -266,18 +266,18 @@ repair) must hold, with the invariant that makes each auditable:
 
 1. **Single quota authority.** Quota comes from `session_guard.total_events` under the
    row lock, inside the same transaction that inserts the event rows. The sanctioned
-   path is `ingest_batch()`. *(I3: guard matches events.)*
+   path is `ingest_batch()`. _(I3: guard matches events.)_
 2. **Summaries are deferrable, the guard is not.** `sessions_active`,
    `sessions_history`, `session_stats_15m` and the daily rollups are rebuildable and
    may lag — they are never inputs to the cap, and deleting or deferring them does
-   not change a quota decision. *(T28a: cap holds at exactly 5,000 with every summary
-   absent; T28c: a later maintenance pass converges them, I3 closes.)*
+   not change a quota decision. _(T28a: cap holds at exactly 5,000 with every summary
+   absent; T28c: a later maintenance pass converges them, I3 closes.)_
 3. **No direct event-row writers.** Any path that writes `events` rows for a session
    without claiming room is a bug that must fail loudly in CI and alerts, never a
-   tolerated state. *(T28b: both writer shapes trip an invariant — events-without-guard
-   diverges (I3); guard-bumped-to-match exceeds the cap (I2).)*
+   tolerated state. _(T28b: both writer shapes trip an invariant — events-without-guard
+   diverges (I3); guard-bumped-to-match exceeds the cap (I2).)_
 4. **Rejections stay stable.** Once `session_capped`, retries return `session_capped`
-   forever; capped events leave no dedupe claim (D1/D9). *(T28a retry assertion.)*
+   forever; capped events leave no dedupe claim (D1/D9). _(T28a retry assertion.)_
 5. **The cap never moves silently.** Raising or removing the 5,000 limit is a schema +
    contract change (SDK rotation, docs, tests) — not a config knob.
 

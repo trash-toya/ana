@@ -5,23 +5,24 @@ created by one of these files; nothing is created by hand.
 
 ## Migration list (P0 scope, extended later)
 
-| File                        | Creates                                                                                                                   | Phase |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------- | ----- |
-| `0001_extensions.sql`       | `timescaledb`, `timescaledb_toolkit`, `pg_stat_statements` (where available)                                              | P0    |
-| `0002_tenancy.sql`          | `tenants`, `api_keys`, `tenant_settings`, `identity_map`, and the five service roles                                      | P0    |
-| `0003_events.sql`           | `events` hypertable, indexes, compression + retention policies                                                            | P0    |
-| `0004_idempotency.sql`      | `event_dedupe` + age index                                                                                                | P0    |
-| `0005_session_guard.sql`    | `session_guard` + age index                                                                                               | P0    |
-| `0006_sessions_active.sql`  | `sessions_active` + touch index                                                                                           | P0    |
-| `0007_sessions_history.sql` | `sessions_history` hypertable, indexes, compression + retention policies, `sessions` view                                 | P0    |
-| `0008_session_stats.sql`    | `session_stats_15m` hypertable                                                                                            | P0    |
-| `0009_functions.sql`        | `app_tenant()`, `parse_batch()`, `ingest_batch()` (`SECURITY DEFINER`, owned by `app_writer`) plus grants                 | P0    |
-| `0010_jobs.sql`             | `archive_sessions`, `rebuild_session_stats`, `cleanup_idempotency`, `reconcile_session_stats` procedures                  | P0    |
-| `0011_rls.sql`              | RLS enable/force + policies for the roles created in `0002`                                                               | P4    |
-| `0012_caggs.sql`            | `events_15m`, `identity_15m`, refresh policies, backfill calls (**created in P3-1**, see "Continuous aggregates")         | P3    |
-| `0013_daily.sql`            | `session_stats_daily`, `identity_daily`, `rollup_daily`                                                                   | P3    |
-| `0014_schedule.sql`         | `add_job` registrations for the jobs that exist in the phase (staging/production only; the test harness never applies it) | P0/P3 |
-| `0016_freshness.sql`        | `cagg_watermark_ts(text)` — CAGG watermark as a plain `timestamptz`, NULL until first refresh (**created in P3-7**)        | P3    |
+| File                        | Creates                                                                                                                                                           | Phase |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- |
+| `0001_extensions.sql`       | `timescaledb`, `timescaledb_toolkit`, `pg_stat_statements` (where available)                                                                                      | P0    |
+| `0002_tenancy.sql`          | `tenants`, `api_keys`, `tenant_settings`, `identity_map`, and the five service roles                                                                              | P0    |
+| `0003_events.sql`           | `events` hypertable, indexes, compression + retention policies                                                                                                    | P0    |
+| `0004_idempotency.sql`      | `event_dedupe` + age index                                                                                                                                        | P0    |
+| `0005_session_guard.sql`    | `session_guard` + age index                                                                                                                                       | P0    |
+| `0006_sessions_active.sql`  | `sessions_active` + touch index                                                                                                                                   | P0    |
+| `0007_sessions_history.sql` | `sessions_history` hypertable, indexes, compression + retention policies, `sessions` view                                                                         | P0    |
+| `0008_session_stats.sql`    | `session_stats_15m` hypertable                                                                                                                                    | P0    |
+| `0009_functions.sql`        | `app_tenant()`, `parse_batch()`, `ingest_batch()` (`SECURITY DEFINER`, owned by `app_writer`) plus grants                                                         | P0    |
+| `0010_jobs.sql`             | `archive_sessions`, `rebuild_session_stats`, `cleanup_idempotency`, `reconcile_session_stats` procedures                                                          | P0    |
+| `0011_rls.sql`              | RLS enable/force + the `tenant_isolation`/`owner_maintenance` policy pair on the pre-P4 tables; 0002 tables transferred to `app_owner` (**created in P4-1**, D36) | P4    |
+| `0012_caggs.sql`            | `events_15m`, `identity_15m`, refresh policies, backfill calls (**created in P3-1**, see "Continuous aggregates")                                                 | P3    |
+| `0013_daily.sql`            | `session_stats_daily`, `identity_daily`, `rollup_daily`                                                                                                           | P3    |
+| `0014_schedule.sql`         | `add_job` registrations for the jobs that exist in the phase (staging/production only; the test harness never applies it)                                         | P0/P3 |
+| `0016_freshness.sql`        | `cagg_watermark_ts(text)` — CAGG watermark as a plain `timestamptz`, NULL until first refresh (**created in P3-7**)                                               | P3    |
+| `0017_rls_access.sql`       | RLS on the 0013/0015 tables; tenant-bound views (`*_tenant`, rebuilt `sessions`); `resolve_api_key()`; app_dashboard grants (**created in P4-1**, D37)            | P4    |
 
 Rationale for the split: P0 must be runnable and testable on its own, so tenancy,
 event, identity, session and statistics tables arrive before RLS and rollups. RLS is
@@ -159,12 +160,12 @@ exposed to the dashboard only through the tenant-bound views D4 requires (RLS ca
 carried by a CAGG). Design pinned by the spike on the production image (Timescale
 2.32.0 / toolkit 1.26.0, T24):
 
-| Column (group: `tenant_id`, `bucket`)      | Why                                                                                                                                          |
-| ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `events_15m.events`, `engaged_events`      | exact counts; `engaged_events` filters `cat = 'e'`                                                                                            |
-| `events_15m.sessions`                      | `count(DISTINCT session_id)` — supported inside a CAGG on the pinned version, so session counts stay exact                                     |
-| `identity_15m.anon_hll`                    | `hyperloglog(4096, anon_id)` state; finalized on read with `distinct_count(rollup(...))`                                                       |
-| `identity_15m.users_hll`                   | `hyperloglog(4096, user_id) FILTER (WHERE user_id IS NOT NULL)` — without the filter, NULL user_ids corrupt the sketch (spike-verified)        |
+| Column (group: `tenant_id`, `bucket`) | Why                                                                                                                                     |
+| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `events_15m.events`, `engaged_events` | exact counts; `engaged_events` filters `cat = 'e'`                                                                                      |
+| `events_15m.sessions`                 | `count(DISTINCT session_id)` — supported inside a CAGG on the pinned version, so session counts stay exact                              |
+| `identity_15m.anon_hll`               | `hyperloglog(4096, anon_id)` state; finalized on read with `distinct_count(rollup(...))`                                                |
+| `identity_15m.users_hll`              | `hyperloglog(4096, user_id) FILTER (WHERE user_id IS NOT NULL)` — without the filter, NULL user_ids corrupt the sketch (spike-verified) |
 
 Three consequences worth writing down:
 
@@ -283,15 +284,48 @@ $$ SELECT current_setting('app.tenant_id', false)::uuid $$;  -- raises if unset
 Policies are `FOR ALL USING (tenant_id = app_tenant()) WITH CHECK (tenant_id = app_tenant())`
 — the `WITH CHECK` half is what stops cross-tenant inserts.
 
-- Tables to protect: `events`, `sessions_active`, `sessions_history`,
-  `session_stats_15m`, `session_stats_daily`, `identity_daily`, `identity_map`. The PDF's
-  example names `session_stats_hourly`, which does not exist.
-- Continuous aggregates (`events_15m`, `identity_15m`) are materialized views and cannot
-  carry RLS. They are exposed only through `security_invoker` views (or a
-  `security_barrier` function) that force `tenant_id = app_tenant()`; the dashboard role
-  gets no direct grant. P3-1 verifies this on the pinned version.
-- `FORCE ROW LEVEL SECURITY` on every hypertable; Timescale propagates the setting to
-  chunks, so verify rather than writing chunk policies by hand (P4-1).
+- Tables to protect: every tenant-scoped table — `sessions_active`, `session_guard`,
+  `event_dedupe`, `session_stats_15m`, `session_stats_daily`, `identity_daily`,
+  `identity_map`, `session_bootstrap`, `tenants`, `tenant_settings` (`0011` for the
+  tables that exist by then, `0017` for the later ones). The PDF's example names
+  `session_stats_hourly`, which does not exist.
+- **Pinned-image RLS refusals (Timescale 2.32.0, all verified in P4-1):**
+  - `ENABLE/FORCE RLS` is **refused on compressed (columnstore) hypertables** —
+    `events` and `sessions_history` cannot carry policies
+    ("operation not supported on hypertables that have columnstore enabled").
+  - RLS is **refused on CAGG materialization hypertables** ("operation not supported on
+    materialization tables").
+  - `security_invoker` is **refused on the CAGG views themselves** ("only timescaledb
+    parameters allowed in WITH clause for continuous aggregate").
+    For those surfaces isolation is enforced by the view layer instead ([DEVIATIONS.md](DEVIATIONS.md)
+    D37): `events_tenant`/`history_tenant` are `security_invoker` wrappers with
+    `tenant_id = app_tenant()` in the view body; `events_15m_tenant`/`identity_15m_tenant`
+    are owner-context wrappers with the same predicate (they must run as the owner because
+    a CAGG view cannot be `security_invoker` and any grant on it would expose every
+    tenant). The predicate inside a view body is fail-closed (`app_tenant()` raises when
+    `app.tenant_id` is unset) and cannot be pushed out of the view, and no service role
+    holds a grant on the CAGG views or the raw tables except through the wrappers.
+- Policies (two per table, `0011`/`0017`): `tenant_isolation TO PUBLIC USING/WITH CHECK
+  (tenant_id = app_tenant())` — the `WITH CHECK` half is what stops cross-tenant inserts
+  — and `owner_maintenance TO app_owner USING/WITH CHECK (true)` so Timescale background
+  workers (CAGG refresh, compression, retention) can run without a tenant context
+  ([DEVIATIONS.md](DEVIATIONS.md) D36). The `OR true` owner policy folds at plan time, so
+  unbound maintenance reads never evaluate `app_tenant()` (verified).
+- `FORCE ROW LEVEL SECURITY` on every RLS-capable table; chunks do **not** carry the
+  flags themselves on this image (verified: `relrowsecurity = false` on chunk catalog
+  entries) — the parent's policies govern the scan, and the t29 suite proves isolation
+  behaviorally instead of via chunk catalog flags.
+- The 0002 tenancy tables (`tenants`, `api_keys`, `tenant_settings`, `identity_map`) are
+  bootstrap-owned; `0011` transfers them to `app_owner` **before** `SET ROLE app_owner`
+  (the transfer needs the current owner).
+- Key authentication never touches `api_keys` from a service role: `resolve_api_key()`
+  (`0017`) is `SECURITY DEFINER` owned by `app_writer` (cross-tenant **by design** — the
+  tenant is derived from the hash), `EXECUTE` granted to `app_ingest`/`app_dashboard`.
+  Both services therefore hold zero table grants on `api_keys` (P4-1 done-when).
+- `app_dashboard` grants (0017): SELECT on the tenant-bound views, `sessions`,
+  `sessions_active`, the rollups, `tenant_settings` (tz), plus `EXECUTE` on
+  `app_tenant()`/`cagg_watermark_ts` — SELECT-only, nothing on the write path
+  (`api_keys`, guard, dedupe, bootstrap, `identity_map`, `tenants`).
 
 ## Invariants and monitors (each has a test)
 

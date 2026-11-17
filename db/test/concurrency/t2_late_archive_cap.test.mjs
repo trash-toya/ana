@@ -83,7 +83,10 @@ test("T2: late events after archiving respect the cap and merge exactly", async 
     const active = await c.query("SELECT total_events FROM sessions_active");
     assert.equal(Number(active.rows[0].total_events), 100, "late partial is its own row");
 
-    // D18: the live view must not show the session twice.
+    // D18: the live view must not show the session twice. The rebuilt view
+    // (0017) carries tenant predicates on both arms, so bind the tenant first
+    // (session-local: these are autocommit statements, not one transaction).
+    await c.query("SELECT set_config('app.tenant_id', $1, false)", [tenantId]);
     const view = await c.query("SELECT count(*) AS n FROM sessions");
     assert.equal(Number(view.rows[0].n), 1, "no double count in the sessions view");
 

@@ -28,6 +28,12 @@ npm run test:property                            # property test (short seed set
   procedures are owned by `app_owner`, and `ingest_batch()` is re-owned by
   `app_writer` in `0009`. In production the migration runner connects with a role
   that is a member of `app_owner`.
+  P4 gotchas: ownership transfers (`0011` moves the 0002 tables; `0015`/`0017`
+  move functions to `app_writer`) must run **before** `SET ROLE app_owner` —
+  transferring requires the current owner — so those migrations `RESET ROLE`
+  around the `ALTER ... OWNER TO` statements. RLS changes are refused on
+  compressed hypertables and CAGG materialization hypertables on the pinned
+  image (see DEVIATIONS.md D37); do not "fix" the migrations to retry them.
 - **`\i` paths are resolved relative to the repo root**: the runner spawns `psql`
   with `cwd` set to the repo root. Run tests through npm scripts so this holds.
 - Tests never call the API for outcomes: they call `ingest_batch()` directly and

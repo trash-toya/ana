@@ -183,7 +183,7 @@ queries so the SQL is reviewable in one place:
 | `GET /v1/entry-pages?from&to`      | `sessions` + `events`                                                                                               | Example 4         |
 | `POST /v1/funnels` (steps in body) | `events`, ordered sequence                                                                                          | Example 5         |
 | `GET /v1/live`                     | `sessions_active` with `touch_bucket` range + 5-minute `last_seen_at`, excluding sessions that already have history | Example 6         |
-| `GET /v1/freshness`                | CAGG watermarks via `cagg_watermark_ts()` (0016), tenant data high-water mark                                        | Notion §22 gate   |
+| `GET /v1/freshness`                | CAGG watermarks via `cagg_watermark_ts()` (0016), tenant data high-water mark                                       | Notion §22 gate   |
 
 Rules that hold for every endpoint:
 

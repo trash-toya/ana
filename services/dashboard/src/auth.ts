@@ -1,6 +1,6 @@
 // API-key authentication for the read-only dashboard (04-services.md step 1
 // pattern, same as the ingest service's ApiKeyAuth but kind='dashboard'):
-// X-API-Key → sha256 → api_keys lookup (cached, 60 s TTL) → tenant_id. A
+// X-API-Key → sha256 → resolve_api_key() lookup (cached, 60 s TTL) → tenant_id. A
 // tenant ID is never accepted from the request.
 //
 // The ingest auth deliberately excludes dashboard keys and this one accepts
@@ -85,9 +85,8 @@ export class DashboardKeyAuth {
 
   private async lookup(hex: string, _rawKey: string): Promise<AuthResult> {
     const { rows } = await this.query<KeyRow>(
-      `SELECT tenant_id, kind, revoked_at IS NOT NULL AS revoked
-          FROM api_keys
-         WHERE key_hash = $1`,
+      `SELECT tenant_id, kind, revoked
+          FROM resolve_api_key($1)`,
       [Buffer.from(hex, "hex")],
     );
     const row = rows[0];

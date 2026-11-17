@@ -63,7 +63,7 @@ export function replaySession(sessionId: string, homeDay: string) {
     }>(
       `SELECT session_id, anon_id, user_id, started_at, last_seen_at,
               event_count, total_events, heartbeats, entry_url, device, country, utm
-         FROM sessions_history
+         FROM history_tenant
         WHERE tenant_id = app_tenant() AND session_id = $1 AND home_day = $2
         UNION ALL
        SELECT session_id, anon_id, user_id, started_at, last_seen_at,
@@ -71,7 +71,7 @@ export function replaySession(sessionId: string, homeDay: string) {
          FROM sessions_active
         WHERE tenant_id = app_tenant() AND session_id = $1 AND home_day = $2
           AND NOT EXISTS (SELECT 1
-                            FROM sessions_history h
+                            FROM history_tenant h
                            WHERE h.tenant_id = app_tenant() AND h.session_id = $1)`,
       [sessionId, homeDay],
     );
@@ -95,7 +95,7 @@ export function replayEvents(sessionId: string, startedAt: string, lastSeenAt: s
       props: unknown;
     }>(
       `SELECT event_id, time, seq, cat, name, url, props
-         FROM events
+         FROM events_tenant
         WHERE tenant_id = app_tenant()
           AND session_id = $1
           AND time >= $2::timestamptz - INTERVAL '5 minutes'
@@ -155,7 +155,7 @@ export function liveSlice() {
         WHERE a.tenant_id = app_tenant()
           AND a.last_seen_at > now() - INTERVAL '5 minutes'
           AND a.touch_bucket >= floor(extract(epoch FROM now()) / 600)::int - 1
-          AND NOT EXISTS (SELECT 1 FROM sessions_history h
+          AND NOT EXISTS (SELECT 1 FROM history_tenant h
                            WHERE h.tenant_id = a.tenant_id
                              AND h.session_id = a.session_id)`,
     );
@@ -258,7 +258,7 @@ export function identityFrom15m(
       `SELECT (time_bucket('1 day', bucket, $3) AT TIME ZONE $3)::date::text AS day,
               distinct_count(rollup(anon_hll))  AS visitors,
               distinct_count(rollup(users_hll)) AS users
-         FROM identity_15m
+         FROM identity_15m_tenant
         WHERE tenant_id = app_tenant()
           AND bucket >= $1::timestamptz
           AND bucket <  $2::timestamptz
@@ -325,7 +325,7 @@ export function funnel(from: string, to: string, steps: string[]) {
       `WITH RECURSIVE ev AS (
           SELECT e.session_id, e.name,
                  row_number() OVER (ORDER BY e.time, e.seq NULLS LAST, e.event_id) AS ord
-            FROM events e
+            FROM events_tenant e
            WHERE e.tenant_id = app_tenant()
              AND e.cat = 'e'
              AND e.time >= $1::timestamptz
@@ -386,9 +386,9 @@ export function freshness() {
     }>(
       `SELECT cagg_watermark_ts('events_15m')   AS events_watermark,
               cagg_watermark_ts('identity_15m') AS identity_watermark,
-              EXISTS (SELECT 1 FROM events)      AS has_events,
+              EXISTS (SELECT 1 FROM events_tenant) AS has_events,
               (SELECT time_bucket('15 minutes', max(time)) + INTERVAL '15 minutes'
-                 FROM events)                    AS data_bucket_end`,
+                 FROM events_tenant)              AS data_bucket_end`,
     );
 }
 
@@ -422,7 +422,7 @@ export function liveRoster() {
         WHERE a.tenant_id = app_tenant()
           AND a.last_seen_at > now() - INTERVAL '5 minutes'
           AND a.touch_bucket >= floor(extract(epoch FROM now()) / 600)::int - 1
-          AND NOT EXISTS (SELECT 1 FROM sessions_history h
+          AND NOT EXISTS (SELECT 1 FROM history_tenant h
                            WHERE h.tenant_id = a.tenant_id
                              AND h.session_id = a.session_id)
         ORDER BY a.last_seen_at DESC`,

@@ -1,5 +1,5 @@
 // API-key authentication (04-services.md step 1): X-API-Key → sha256 →
-// api_keys lookup (cached, 60 s TTL, invalidated on revoke in the same
+// resolve_api_key() lookup (cached, 60 s TTL, invalidated on revoke in the same
 // instance) → tenant_id. A tenant ID in the request body is never trusted.
 //
 // Revocation is effective within 60 s across instances (the customer-facing
@@ -82,9 +82,8 @@ export class ApiKeyAuth {
     }
 
     const { rows } = await this.query<KeyRow>(
-      `SELECT tenant_id, kind, revoked_at IS NOT NULL AS revoked
-          FROM api_keys
-         WHERE key_hash = $1`,
+      `SELECT tenant_id, kind, revoked
+          FROM resolve_api_key($1)`,
       [Buffer.from(hex, "hex")],
     );
     const row = rows[0];

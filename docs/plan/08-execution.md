@@ -195,6 +195,17 @@ diverge guard/events (I3), a guard bumped to match exceeds the counter cap (I2)
 **G3:** dashboards read only rollups + live slice; bounce rate non-zero and plausible;
 approximate labels applied to HLL metrics.
 
+**G3 status: PASSED (P3 close-out).** Evidence: `services/dashboard/test/g3_gate.test.mjs`
+— headline metrics (hourly/daily) are behavioral-proven to read the rollups + live
+slice only: with 7 raw events stored and no archived stats yet, the hours/days
+arrays are empty (no raw-event fallback) while the live slice reports the active
+sessions; after `forceArchive` + one CAGG refresh the same range is served entirely
+from `session_stats_15m` with bounce_rate = 0.6 matching the seeded 3/5 pattern,
+archived sessions leave the live slice (D18), and `live: true` labelling holds both
+before and after. Bounce plausibility bounds and the `approximate: true` HLL labels
+are additionally pinned by the P3-3 endpoint tests. P3 rows P3-1…P3-8 are closed
+(commits b816d7b, b20d92b, 3c73904, 71ca8a7, 629f74b, 99512bd, c16142f).
+
 ---
 
 ## P4 — Production hardening

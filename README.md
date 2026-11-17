@@ -12,14 +12,14 @@ billing or audit events.
 
 ## Status
 
-| Phase | Theme                        | State                                                     |
-| ----- | ---------------------------- | --------------------------------------------------------- |
-| P0    | Database core                | ✅ closed (gates G0/G1B)                                  |
-| P1    | Ingest API + minimal web SDK | ✅ closed (G1)                                            |
-| P2    | Durable clients              | ✅ closed (G2)                                            |
-| P3    | Rollups and dashboards       | ✅ closed (G3)                                            |
-| P4    | Production hardening         | 🚧 in progress — roles/RLS and the CI isolation gate done |
-| P5    | Optional scaling             | ⏸ not approved; each item gated on a stated trigger       |
+| Phase | Theme                        | State                                                                |
+| ----- | ---------------------------- | -------------------------------------------------------------------- |
+| P0    | Database core                | ✅ closed (gates G0/G1B)                                             |
+| P1    | Ingest API + minimal web SDK | ✅ closed (G1)                                                       |
+| P2    | Durable clients              | ✅ closed (G2)                                                       |
+| P3    | Rollups and dashboards       | ✅ closed (G3)                                                       |
+| P4    | Production hardening         | 🚧 in progress — roles/RLS, CI isolation gate, abuse protection done |
+| P5    | Optional scaling             | ⏸ not approved; each item gated on a stated trigger                  |
 
 The full plan, decisions and evidence live in [`docs/plan/`](docs/plan/README.md);
 every intentional difference from the source blueprint is recorded with its covering
@@ -104,20 +104,21 @@ Postgres in production. Auth is by API key (`X-API-Key`): ingest keys are accept
 by the ingest service, dashboard keys only by the dashboard; the key resolves to a
 tenant inside the database (`resolve_api_key()`), never from the request.
 
-| Variable                              | Service   | Default                                  |
-| ------------------------------------- | --------- | ---------------------------------------- |
-| `DATABASE_URL`                        | both      | —                                        |
-| `PORT`                                | both      | 3001 / 3002                              |
-| `SESSION_CONTEXT_SECRET`              | ingest    | — (bootstrap/resume disabled without it) |
-| `MAX_BATCH` / `BUFFER_MAX`            | ingest    | 500 / 5000                               |
-| `FLUSH_IDLE_MS` / `FLUSH_INTERVAL_MS` | ingest    | 50 / 1000                                |
-| `STATEMENT_TIMEOUT_MS`                | dashboard | 10000                                    |
-| `AUTH_TTL_MS`                         | dashboard | 60000                                    |
+| Variable                                | Service   | Default                                                                   |
+| --------------------------------------- | --------- | ------------------------------------------------------------------------- |
+| `DATABASE_URL`                          | both      | —                                                                         |
+| `PORT`                                  | both      | 3001 / 3002                                                               |
+| `SESSION_CONTEXT_SECRET`                | ingest    | — (bootstrap/resume disabled without it)                                  |
+| `MAX_BATCH` / `BUFFER_MAX`              | ingest    | 500 / 5000                                                                |
+| `FLUSH_IDLE_MS` / `FLUSH_INTERVAL_MS`   | ingest    | 50 / 1000                                                                 |
+| `RATE_LIMIT_<SCOPE>_PER_SEC` / `_BURST` | ingest    | ip 200/400, key 100/200, tenant 300/600, session 1000/2000 (`0` disables) |
+| `STATEMENT_TIMEOUT_MS`                  | dashboard | 10000                                                                     |
+| `AUTH_TTL_MS`                           | dashboard | 60000                                                                     |
 
 ## Testing
 
 ```bash
-pnpm test                  # everything (256 tests, 45 files, real TimescaleDB)
+pnpm test                  # everything (273 tests, 48 files, real TimescaleDB)
 pnpm test:db               # database suites: T1–T9, invariants, property, RLS
 pnpm test:db:concurrency   # T1–T9 only
 pnpm test:property         # randomized invariant test (short seed set)

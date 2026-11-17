@@ -49,7 +49,7 @@ if (!sessions) {
 }
 
 const flusher = new Flusher({ pool, ...config });
-const app = createApp({ pool, flusher, sessions });
+const app = createApp({ pool, flusher, sessions, limits: config.limits });
 const server = app.listen(config.port, () => {
   console.log(JSON.stringify({ msg: "listening", port: config.port }));
 });

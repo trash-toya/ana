@@ -18,6 +18,12 @@ import {
 } from "@session-analytics/shared";
 import { ApiKeyAuth } from "./auth.js";
 import { BufferFullError, Flusher } from "./flusher.js";
+import {
+  LIMIT_DEFAULTS,
+  RateLimiter,
+  sendRateLimited,
+  type LimitConfig,
+} from "./limits.js";
 import { Metrics } from "./metrics.js";
 import type { SessionService } from "./sessions.js";
 import {
@@ -57,6 +63,10 @@ export interface IngestAppOptions {
   submit?: SubmitFn;
   /** Bootstrap/resume service. Omitted → `/v1/sessions*` is not mounted. */
   sessions?: SessionService;
+  /** Abuse-protection buckets (04-services.md). `null` disables all scopes. */
+  limits?: LimitConfig | null;
+  /** Pre-built limiter (tests inject one with a fake clock). */
+  limiter?: RateLimiter;
 }
 
 export function createApp(options: IngestAppOptions): Express {
@@ -68,11 +78,34 @@ export function createApp(options: IngestAppOptions): Express {
   const metricsLocalOnly = options.metricsLocalOnly ?? true;
   const metricsAllowed =
     options.metricsAllowed ?? ((addr: string | undefined) => isInternalAddress(addr));
+  const limiter =
+    options.limiter ??
+    new RateLimiter(
+      options.limits === null
+        ? { ip: null, key: null, tenant: null, session: null }
+        : (options.limits ?? LIMIT_DEFAULTS),
+    );
+
+  // Abuse protection scopes 2–3: per-key and per-tenant, after auth (the auth
+  // middleware sets req.keyDigest / req.tenantId). They apply to the session
+  // bootstrap routes too: those are server-key operations and equally abusable.
+  const authGate: RequestHandler[] = [
+    auth.middleware(),
+    limiter.middleware("key", (req) => req.keyDigest, metrics),
+    limiter.middleware("tenant", (req) => req.tenantId, metrics),
+  ];
 
   const app: Express = express();
   app.disable("x-powered-by");
 
   app.use(countRequests(metrics));
+
+  // Abuse protection scope 1: every /v1 request by peer address, before body
+  // parsing and before auth — an unauthenticated flood is the cheapest attack.
+  app.use(
+    "/v1",
+    limiter.middleware("ip", (req) => req.socket.remoteAddress ?? "unknown", metrics),
+  );
 
   // Body cap: 1 MB (blueprint §Abuse protection). Over-large bodies are
   // rejected before any parsing; oversized-but-valid-JSON bodies surface as
@@ -97,10 +130,11 @@ export function createApp(options: IngestAppOptions): Express {
       res.status(403).json({ error: "forbidden" });
       return;
     }
+    metrics.gauge("rate_limit_buckets", limiter.size());
     res.type("text/plain; version=0.0.4; charset=utf-8").send(metrics.render());
   });
 
-  app.post("/v1/events", auth.middleware(), async (req, res) => {
+  app.post("/v1/events", ...authGate, async (req, res) => {
     const receivedAt = new Date();
     const outcome = validateBatch(req.body, {
       tenantId: req.tenantId as string,
@@ -113,6 +147,20 @@ export function createApp(options: IngestAppOptions): Express {
       res.status(403).json({ error: "source_not_allowed", source: disallowed.source });
       return;
     }
+    // Abuse protection scope 4: charge each session the number of VALIDATED
+    // events it carries (a flush can legitimately carry hundreds). Charged
+    // all-or-nothing across the batch, and before anything reaches the buffer.
+    const sessionCosts = new Map<string, number>();
+    for (const row of outcome.rows) {
+      if (row.session_id) {
+        sessionCosts.set(row.session_id, (sessionCosts.get(row.session_id) ?? 0) + 1);
+      }
+    }
+    const sessionDecision = limiter.checkCosts("session", sessionCosts);
+    if (!sessionDecision.ok) {
+      sendRateLimited(res, sessionDecision, metrics);
+      return;
+    }
     const dbResult: IngestBatchResult = outcome.rows.length
       ? await submit({ tenantId: req.tenantId as string, outcome, receivedAt })
       : { stored: [], dups: [], capped: [], conflicts: [] };
@@ -122,29 +170,24 @@ export function createApp(options: IngestAppOptions): Express {
   if (options.sessions) {
     const sessions = options.sessions;
 
-    app.post(
-      "/v1/sessions",
-      auth.middleware(),
-      requireServerKey,
-      async (req, res, next) => {
-        const parsed = SessionStartRequestSchema.safeParse(req.body);
-        if (!parsed.success) {
-          res.status(400).json({ error: "malformed" });
-          return;
-        }
-        try {
-          const session = await sessions.start(req.tenantId as string, parsed.data);
-          metrics.inc("session_bootstrap_total", { resumed: String(session.resumed) });
-          res.status(200).json(session);
-        } catch (err) {
-          next(err);
-        }
-      },
-    );
+    app.post("/v1/sessions", ...authGate, requireServerKey, async (req, res, next) => {
+      const parsed = SessionStartRequestSchema.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({ error: "malformed" });
+        return;
+      }
+      try {
+        const session = await sessions.start(req.tenantId as string, parsed.data);
+        metrics.inc("session_bootstrap_total", { resumed: String(session.resumed) });
+        res.status(200).json(session);
+      } catch (err) {
+        next(err);
+      }
+    });
 
     app.post(
       "/v1/sessions/validate",
-      auth.middleware(),
+      ...authGate,
       requireServerKey,
       async (req, res, next) => {
         const parsed = SessionValidateRequestSchema.safeParse(req.body);

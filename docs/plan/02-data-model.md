@@ -56,11 +56,13 @@ CREATE TABLE tenant_settings (
 ```
 
 Up to two active ingest keys per tenant (rotation) and at most one dashboard key, enforced by
-the provisioning script rather than by DDL. A `server` key is a backend credential: it may
-bootstrap/resume sessions and emit `server`/`webhook`-sourced events, which a public
-`ingest` (client) key cannot ([DEVIATIONS.md](DEVIATIONS.md) D28). Revocation is by
-`revoked_at` and takes effect within the 60 s auth cache TTL
-([04-services.md](04-services.md)), not instantly across instances.
+the provisioning script (`db/scripts/api-keys.mjs`, P4-3) rather than by DDL. `ingest` and
+`server` share the rotation budget; `create` takes a per-tenant advisory lock and the raw key
+is printed once (the table stores sha256 only, and `list` shows a 12-hex fingerprint). A
+`server` key is a backend credential: it may bootstrap/resume sessions and emit
+`server`/`webhook`-sourced events, which a public `ingest` (client) key cannot
+([DEVIATIONS.md](DEVIATIONS.md) D28). Revocation is by `revoked_at` and takes effect within
+the 60 s auth cache TTL ([04-services.md](04-services.md)), not instantly across instances.
 
 ### `events` (hypertable on `time`)
 
@@ -340,9 +342,11 @@ Policies are `FOR ALL USING (tenant_id = app_tenant()) WITH CHECK (tenant_id = a
 | I7  | Sessions without engagement are exceptional   | `sessions` where `event_count = 0` is monitored and alerted on, not enforced: a dropped `page_view` leaves a lifecycle-only session, which is why `ec_0` exists          |
 | I8  | No orphan events (integrity check, not an FK) | `events` with `time >= now() - INTERVAL '3 days'` **and `session_id IS NOT NULL`** and no `session_guard` row → 0 rows (sessionless events have no guard by design, D29) |
 | I9  | Cross-tenant isolation                        | `app_dashboard` sees 0 rows of tenant B when `app.tenant_id` = tenant A                                                                                                  |
+| I10 | Event-name cardinality is bounded (monitor)   | `count(DISTINCT name)` per tenant over the last hour > 100 → alert, not enforce (`db/sql/monitors/tenant_event_cardinality.sql`)                                         |
 
 I6 and I9 do not exist in the PDF; they are the two additions that catch the defects we
-are fixing.
+are fixing. I10 is a monitor for abuse, not a data invariant: it may legitimately return
+rows, and the runbook decides whether the cause is a client bug or an attack.
 
 ## Open items for the P0 reviewer
 

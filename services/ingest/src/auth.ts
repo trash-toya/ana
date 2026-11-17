@@ -109,9 +109,10 @@ export class ApiKeyAuth {
   /** Express middleware: sets req.tenantId or answers 401/403 itself. */
   middleware(): RequestHandler {
     return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+      const rawKey = req.get("X-API-Key");
       let result: AuthResult;
       try {
-        result = await this.authenticate(req.get("X-API-Key"));
+        result = await this.authenticate(rawKey);
       } catch (err) {
         next(err);
         return;
@@ -122,6 +123,9 @@ export class ApiKeyAuth {
       }
       req.tenantId = result.tenantId;
       req.keyKind = result.keyKind;
+      // The per-key rate limit buckets on the digest, so no raw key can ever
+      // land in a map key, log line or metric label.
+      if (rawKey) req.keyDigest = digestHex(rawKey);
       next();
     };
   }

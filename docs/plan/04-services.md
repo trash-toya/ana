@@ -151,20 +151,54 @@ cross-session race fix).
 | 413             | Body too large                                                             | Halve batch, retry; if one event still exceeds 1 MB, reject that event permanently                                     |
 | 429/5xx/network | Transient                                                                  | Exponential backoff, honour `Retry-After`                                                                              |
 
-### Abuse protection (P4, wired as middleware from P1)
+### Abuse protection (P4-3, as built)
 
-Per-key, per-session and per-IP rate limits; per-tenant daily quota. Per-session and per-IP
-limits use an in-process token bucket (the LB is consistent-hash, so one visitor maps to
-one instance). Per-key and per-tenant limits are **not** enforceable in-process — the
-effective limit is N× the configured value — so they are enforced in Postgres (a counter
-updated by `ingest_batch()`) or explicitly documented as lenient until that exists. Plus
-event-name cardinality alerts, two active keys per tenant, and an `origin`/bundle-ID
-allow-list as a hint only.
+Four token-bucket scopes, in process, all before the write path (`services/ingest/src/limits.ts`):
+
+| Scope     | Applies to                       | Charged                          | Default `rate/s` / `burst` | Env vars                                |
+| --------- | -------------------------------- | -------------------------------- | -------------------------- | --------------------------------------- |
+| `ip`      | every `/v1` request, before auth | 1 per request                    | 200 / 400                  | `RATE_LIMIT_IP_PER_SEC` / `_BURST`      |
+| `key`     | authenticated requests           | 1 per request (sha256 bucket id) | 100 / 200                  | `RATE_LIMIT_KEY_PER_SEC` / `_BURST`     |
+| `tenant`  | authenticated requests           | 1 per request (all keys share)   | 300 / 600                  | `RATE_LIMIT_TENANT_PER_SEC` / `_BURST`  |
+| `session` | `POST /v1/events` body           | **validated events** per session | 1000 / 2000                | `RATE_LIMIT_SESSION_PER_SEC` / `_BURST` |
+
+A rate of `0` disables that scope; a missing burst defaults to the rate. Buckets refill
+continuously, a denied charge consumes nothing, and a batch is charged all-or-nothing
+across the sessions it touches. The session burst exceeds the SDK's 500-event flush
+(`MAX_EVENTS_PER_REQUEST`), so a long-offline client drains its durable queue without
+hitting the limit; the bucket stops runaway producers, not normal traffic. Invalidated
+events cost nothing, and a rejected request never reaches the buffer or the database.
+
+**429 contract:** `{"error":"rate_limited","scope":"ip|key|tenant|session"}` plus
+`Retry-After` in seconds (rounded up). The SDK keeps the queue and retries with backoff.
+`rate_limited_total{scope}` counts each rejection; `rate_limit_buckets` is a gauge of
+live buckets (idle full buckets are pruned).
+
+**Deliberate leniency (D38):** `key` and `tenant` buckets are per instance, so with N
+active instances the effective limit is N× the configured value. Ingest is deployed
+behind a consistent-hash LB, which keeps `ip` and `session` (the buckets that isolate a
+hot visitor or an abusive host) meaningful per instance. A Postgres-side counter for the
+global scopes would be a second quota authority next to `session_guard.total_events`
+(the P3-8 single-authority contract), so the per-tenant daily quota is deferred and the
+leniency is documented rather than implied.
+
+Companion controls:
+
+- **Cardinality monitor (I10)** — `db/sql/monitors/tenant_event_cardinality.sql` flags any
+  tenant over 100 distinct event names per hour (alert + runbook in
+  [07-operations.md](07-operations.md)).
+- **Key policy** — `db/scripts/api-keys.mjs` (`list`/`create`/`revoke`) enforces at most
+  two active ingest-family keys (`ingest` + `server` share the rotation budget, so
+  rotation is create-new → deploy → revoke-old) and one dashboard key per tenant, under a
+  per-tenant advisory lock. The raw key is printed once; the table stores sha256 only and
+  listings expose a 12-hex fingerprint.
+- **`origin`/bundle-ID allow-list** remains a hint, never a boundary ([02-data-model.md](02-data-model.md)).
 
 ### Config
 
 `DATABASE_URL` (→ PgBouncer), `PORT`, `FLUSH_INTERVAL_MS=1000`, `FLUSH_IDLE_MS=50`,
-`MAX_BATCH=500`, `BUFFER_MAX=5000`, `SESSION_CONTEXT_SECRET` (≥16 chars; bootstrap
+`MAX_BATCH=500`, `BUFFER_MAX=5000`, `RATE_LIMIT_{IP,KEY,TENANT,SESSION}_{PER_SEC,BURST}`
+(abuse protection; `0` disables a scope), `SESSION_CONTEXT_SECRET` (≥16 chars; bootstrap
 routes stay unmounted when unset), `LOG_LEVEL`, `OTEL_EXPORTER_OTLP_ENDPOINT`. No
 secrets in the image.
 

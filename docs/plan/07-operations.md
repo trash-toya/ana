@@ -116,18 +116,20 @@ backlog.
 
 ## Alerting thresholds (initial, tune after P4)
 
-| Alert                    | Threshold                                                        |
-| ------------------------ | ---------------------------------------------------------------- |
-| Ingest 5xx rate          | > 0.5% for 5 min                                                 |
-| Flush p95                | > 200 ms for 10 min                                              |
-| Buffer depth             | > 50% of `BUFFER_MAX` for 1 min                                  |
-| Archive backlog          | oldest `sessions_active` row > 100 min (2× the 50-minute window) |
-| Job failures             | any failure in `job_stats`                                       |
-| Dedupe/guard oldest row  | > 3.5 days (cleanup falling behind)                              |
-| Replication lag          | > 5 s                                                            |
-| Reconcile drift          | any warning                                                      |
-| I6 orphans               | > 0 (would mean the cap/dedupe fix regressed)                    |
-| Zero-engagement sessions | Unexpected rise; I7 is a monitor, not an invariant               |
+| Alert                    | Threshold                                                                                                                      |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
+| Ingest 5xx rate          | > 0.5% for 5 min                                                                                                               |
+| Flush p95                | > 200 ms for 10 min                                                                                                            |
+| Buffer depth             | > 50% of `BUFFER_MAX` for 1 min                                                                                                |
+| Archive backlog          | oldest `sessions_active` row > 100 min (2× the 50-minute window)                                                               |
+| Job failures             | any failure in `job_stats`                                                                                                     |
+| Dedupe/guard oldest row  | > 3.5 days (cleanup falling behind)                                                                                            |
+| Replication lag          | > 5 s                                                                                                                          |
+| Reconcile drift          | any warning                                                                                                                    |
+| I6 orphans               | > 0 (would mean the cap/dedupe fix regressed)                                                                                  |
+| Zero-engagement sessions | Unexpected rise; I7 is a monitor, not an invariant                                                                             |
+| Rate-limited share       | > 1% of `/v1` requests over 5 min, or one scope/tenant sustained for 15 min (`rate_limited_total`) — run `abuse-protection.md` |
+| Event-name cardinality   | I10: any tenant > 100 distinct event names per hour; investigate immediately, page if it keeps growing                         |
 
 ## Runbooks (`ops/runbooks/`)
 
@@ -136,6 +138,7 @@ backlog.
 3. `failover.md` — drill procedure, fencing check, job verification, measured RPO/RTO.
 4. `deletion-request.md` — the seven-step workflow below.
 5. `rollback.md` — forward-only migrations, so rollback means restore + replay, not down.
+6. `abuse-protection.md` — 429 storms, cardinality alert (I10), key rotation and revocation.
 
 ## Deletion workflow (blueprint section 9, made executable)
 

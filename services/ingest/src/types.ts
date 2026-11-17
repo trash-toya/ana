@@ -8,5 +8,8 @@ declare module "express-serve-static-core" {
     tenantId?: string;
     /** Key kind decides which `source` values the producer may claim (D28). */
     keyKind?: "ingest" | "server";
+    /** sha256 of the presented key, in hex: the rate-limit bucket id. The raw
+     *  key is never stored or logged. */
+    keyDigest?: string;
   }
 }

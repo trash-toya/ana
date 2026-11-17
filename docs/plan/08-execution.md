@@ -243,7 +243,7 @@ visible), unset binding raises (fail-closed), `app_ingest` holds zero table priv
 `app_dashboard` is SELECT-only with the write path and CAGG internals denied, a
 cross-tenant insert from a granted scratch role is rejected by `WITH CHECK` while its
 own tenant's insert is accepted, and `resolve_api_key` returns the right tenant/revoked
-state with no row for an unknown hash. Full suite 256/256 (45 files).
+state with no row for an unknown hash. Full suite 256/256 (45 files) at the time of P4-1.
 
 P4-2 evidence: `.github/workflows/ci.yml` runs on every push/PR with the pinned
 `timescale/timescaledb-ha:pg17` service container and `DATABASE_URL` matching the
@@ -255,6 +255,29 @@ named step) → full `pnpm test` (2 workers under `CI=1` to stay inside the serv
 container's `max_connections=100`). The gate is also part of the full suite, so the
 build fails if isolation regresses. New scripts: `test:db` (vitest run db/test, 21
 files) and `db:migrate` (the migration runner CLI).
+
+P4-3 evidence (D38): `services/ingest/src/limits.ts` implements continuous-refill token
+buckets in four scopes. `ip` runs on every `/v1` request **before** body parsing and auth;
+`key` (bucket id = sha256 of the presented key, never the key) and `tenant` run right after
+`auth.middleware()` and also cover `/v1/sessions*`; `session` is charged inside
+`POST /v1/events` by the number of **validated events** per `session_id`, all-or-nothing
+across the batch — a 500-event offline flush fits the 2000-event burst. Defaults and
+`RATE_LIMIT_<SCOPE>_PER_SEC/_BURST` overrides are in `04-services.md` §Abuse protection
+(`0` disables a scope; `limits: null` disables all, used by the app tests). A rejection is
+`429 {error:"rate_limited",scope}` + `Retry-After` and never reaches the buffer or DB;
+`rate_limited_total{scope}` and `rate_limit_buckets` expose it. Per-instance leniency for
+`key`/`tenant` and the deferred per-tenant daily quota (single quota authority, P3-8) are
+recorded as D38. Companion controls: I10 cardinality monitor
+(`db/sql/monitors/tenant_event_cardinality.sql`, >100 distinct names/hour/tenant; alert row
+and `ops/runbooks/abuse-protection.md`) and the key-rotation CLI `db/scripts/api-keys.mjs`
+(`list`/`create`/`revoke`; ≤2 active ingest-family keys, ≤1 dashboard, per-tenant advisory
+lock, raw key shown once). Done-when proof: `services/ingest/test/limits.test.mjs` (10
+tests: refill math and denial-consumes-nothing with an injected clock; all-or-nothing
+per-session costs; 429 body/header/metric; per-key and shared-tenant isolation; disabled
+scopes; `limits: null`), `db/test/monitors/cardinality.test.mjs` (I10 fires at 101 names,
+not at 100, ignores names older than the receipt window) and
+`db/test/scripts/api-keys.test.mjs` (policy caps, per-tenant isolation, concurrent create
+race, ambiguous fingerprint revokes nothing, CLI parsing). Full suite 273/273 (48 files).
 
 P4-5 (LB) can land before P4-4; the drill needs the LB, so treat the two as one increment
 even though the IDs stay stable.

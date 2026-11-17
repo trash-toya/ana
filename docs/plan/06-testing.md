@@ -125,12 +125,26 @@ regressions in the merge logic:
 
 ## CI
 
+`.github/workflows/ci.yml` — the prescribed chain, on every push to `main` and
+every PR, with the pinned `timescale/timescaledb-ha:pg17` service container
+(same image as `ops/docker-compose.yml`):
+
 ```
-lint → typecheck → unit → db:migrate → T1–T9 → invariants → property (short seed set)
+lint → format:check → typecheck → build → db:migrate (×2, idempotency) →
+isolation gate (t29, fail-fast) → full suite (T1–T9, invariants, property)
 ```
 
-- `test:db` is a required check on every PR touching `db/`.
-- The property test runs a shorter seed set on PRs and a longer one nightly.
+- The **cross-tenant isolation gate** is a named, fail-fast CI step
+  (`pnpm exec vitest run db/test/rls`): the build fails if isolation regresses
+  (I9, P4-2). It also runs again as part of the full suite, so reordering or
+  skipping the step cannot hide a regression.
+- `db:migrate` runs twice on a persistent database: the second run is the P0-3
+  no-op proof, and the `_migrations` ledger is asserted to hold all 16 files.
+- The full suite includes the hermetic per-test databases (one per file,
+  migrations applied per test) plus the SDK/service suites, so `test:db` is a
+  required check for every PR touching `db/` by construction.
+- The property test runs the same seed set in CI; a longer nightly seed set is
+  a staging-Compose concern (P4-7), not a PR gate.
 - T11 is not in PR CI; it runs on the staging Compose stack during drills.
 
 ## Load tests (P4, targets from blueprint section 10)

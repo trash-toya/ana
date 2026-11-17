@@ -13,6 +13,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "build": "pnpm -r build",
     "test": "pnpm -r build && vitest run",
+    "test:db": "vitest run db",
+    "db:migrate": "node db/test/scripts/migrate.mjs",
     "test:shared": "pnpm -F @session-analytics/shared build && vitest run packages/shared/test",
     "test:ingest": "pnpm -F @session-analytics/ingest build && vitest run services/ingest/test",
     "test:sdk": "pnpm -F @session-analytics/sdk-web build && vitest run packages/sdk-web/test",

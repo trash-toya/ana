@@ -210,9 +210,20 @@ are additionally pinned by the P3-3 endpoint tests. P3 rows P3-1…P3-8 are clos
 
 ## P4 — Production hardening
 
-| ID   | Task                                                                                            | Depends | Done when                                                                |
-| ---- | ----------------------------------------------------------------------------------------------- | ------- | ------------------------------------------------------------------------ |
-| P4-1 | Roles and RLS: enable/force, `app_tenant()` policies with `WITH CHECK`, `security_invoker` view | G3      | I9 green from `app_dashboard`; `app_ingest` holds no table grants at all |
+| ID   | Task                                                                                                                                                                                                                                                                                                                            | Depends    | Done when                                                                |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- | ------------------------------------------------------------------------ |
+| P4-1 | Roles and RLS: enable/force, `app_tenant()` policies with `WITH CHECK`, `security_invoker` view                                                                                                                                                                                                                                 | G3         | I9 green from `app_dashboard`; `app_ingest` holds no table grants at all |
+| P4-2 | Cross-tenant automated test wired into CI                                                                                                                                                                                                                                                                                       | P4-1       | Build fails if isolation regresses                                       |
+| P4-3 | Abuse protection: limits, rate limits, key rotation, cardinality alerts                                                                                                                                                                                                                                                         | P4-1       | Documented limits enforced with tests                                    |
+| P4-4 | Synchronous standby + Patroni-style failover + fencing                                                                                                                                                                                                                                                                          | G3         | T11 passes; RPO 0 measured                                               |
+| P4-5 | LB with consistent hash on `anon_id`                                                                                                                                                                                                                                                                                            | P4-4       | Same visitor lands on one instance; lock waits drop                      |
+| P4-6 | Load test at 2x peak, 1 hour                                                                                                                                                                                                                                                                                                    | P4-3, P4-5 | p95 flush under 200 ms; error rate under 0.5%                            |
+| P4-7 | Alerts, dashboards, runbooks (5 files), on-call checklist                                                                                                                                                                                                                                                                       | P4-6       | Every alert has a runbook link and a trigger test                        |
+| P4-8 | Deletion workflow end-to-end incl. HMAC option and legal sign-off note                                                                                                                                                                                                                                                          | P4-2, P3-5 | T8 plus a full seven-step dry run recorded                               |
+| P4-9 | Server-SDK bootstrap gates (Notion Ref 1 §5): N concurrent resumes of one expired session yield exactly one successor; resume never extends past 24 h; capped session rotated; rollback atomic; cross-tenant/forged tokens rejected. Write-once `successor_session_id` only if the D30 advisory-lock design proves insufficient | G1B        | The five Ref 1 tests pass against the built bootstrap path               |
+
+**G4:** T11 green, zero cross-tenant reads, 2x peak sustained, runbooks and deletion
+workflow reviewed.
 
 P4-1 evidence (D36/D37): `0011_rls.sql` enables+forces RLS with the
 `tenant_isolation`/`owner_maintenance` policy pair on every tenant table that exists by
@@ -233,17 +244,15 @@ visible), unset binding raises (fail-closed), `app_ingest` holds zero table priv
 cross-tenant insert from a granted scratch role is rejected by `WITH CHECK` while its
 own tenant's insert is accepted, and `resolve_api_key` returns the right tenant/revoked
 state with no row for an unknown hash. Full suite 256/256 (45 files).
-| P4-2 | Cross-tenant automated test wired into CI | P4-1 | Build fails if isolation regresses |
-| P4-3 | Abuse protection: limits, rate limits, key rotation, cardinality alerts | P4-1 | Documented limits enforced with tests |
-| P4-4 | Synchronous standby + Patroni-style failover + fencing | G3 | T11 passes; RPO 0 measured |
-| P4-5 | LB with consistent hash on `anon_id` | P4-4 | Same visitor lands on one instance; lock waits drop |
-| P4-6 | Load test at 2x peak, 1 hour | P4-3, P4-5 | p95 flush under 200 ms; error rate under 0.5% |
-| P4-7 | Alerts, dashboards, runbooks (5 files), on-call checklist | P4-6 | Every alert has a runbook link and a trigger test |
-| P4-8 | Deletion workflow end-to-end incl. HMAC option and legal sign-off note | P4-2, P3-5 | T8 plus a full seven-step dry run recorded |
-| P4-9 | Server-SDK bootstrap gates (Notion Ref 1 §5): N concurrent resumes of one expired session yield exactly one successor; resume never extends past 24 h; capped session rotated; rollback atomic; cross-tenant/forged tokens rejected. Write-once `successor_session_id` only if the D30 advisory-lock design proves insufficient | G1B | The five Ref 1 tests pass against the built bootstrap path |
 
-**G4:** T11 green, zero cross-tenant reads, 2x peak sustained, runbooks and deletion
-workflow reviewed.
+P4-2 evidence: `.github/workflows/ci.yml` runs on every push/PR with the pinned
+`timescale/timescaledb-ha:pg17` service container and `DATABASE_URL` matching the
+harness default. The chain is lint → format:check → typecheck → build →
+`db:migrate` twice (idempotency, `_migrations` ledger asserted at 16) →
+**cross-tenant isolation gate** (`pnpm exec vitest run db/test/rls`, fail-fast,
+named step) → full `pnpm test`. The gate is also part of the full suite, so the
+build fails if isolation regresses. New scripts: `test:db` (vitest run db, 21
+files) and `db:migrate` (the migration runner CLI).
 
 P4-5 (LB) can land before P4-4; the drill needs the LB, so treat the two as one increment
 even though the IDs stay stable.

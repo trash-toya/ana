@@ -1,0 +1,83 @@
+# CI (P4-2, per docs/plan/06-testing.md §CI):
+#   lint → typecheck → unit → db:migrate → T1–T9 → invariants → property
+#
+# The cross-tenant isolation gate (db/test/rls/t29, I9) runs as a named,
+# fail-fast step before the full suite: the build fails if isolation
+# regresses. It is also part of the full `pnpm test` run below, so no
+# regression can land by reordering or skipping the gate step.
+#
+# The service container pins the same image as ops/docker-compose.yml
+# (timescale/timescaledb-ha:pg17), and DATABASE_URL matches the test
+# harness default (db/test/README.md). `pnpm db:migrate` proves the
+# migration order + idempotent re-run on a persistent database before the
+# hermetic per-test databases are created by the harness.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    services:
+      db:
+        image: timescale/timescaledb-ha:pg17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 30
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      # The migration runner and the db test harness spawn `psql` directly.
+      - name: Install postgres client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Format check
+        run: pnpm format:check
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Build
+        run: pnpm build
+
+      - name: Migrations apply in order and re-run idempotently (db:migrate)
+        run: |
+          SA_DB=ci_migrate pnpm db:migrate
+          SA_DB=ci_migrate pnpm db:migrate
+          psql postgresql://postgres:postgres@127.0.0.1:5432/ci_migrate -tAc \
+            "SELECT count(*) = 16 FROM _migrations"
+
+      # P4-2 gate: I9 cross-tenant isolation (app_dashboard sees 0 tenant-B
+      # rows, app_ingest zero table grants, WITH CHECK enforced). A named,
+      # fail-fast step — the build fails if isolation regresses.
+      - name: Cross-tenant isolation gate (t29)
+        run: pnpm exec vitest run db/test/rls
+
+      - name: Full suite (T1–T9, invariants, property, endpoint/auth suites)
+        run: pnpm test

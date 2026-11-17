@@ -11,7 +11,7 @@ BEGIN
   PERFORM add_job('archive_sessions',        INTERVAL '1 minute');
   PERFORM add_job('cleanup_idempotency',     INTERVAL '1 minute');
   PERFORM add_job('reconcile_session_stats', INTERVAL '1 day');
-  -- rollup_daily is registered with 0013_daily.sql in P3.
+  PERFORM add_job('rollup_daily',            INTERVAL '1 day');
 END
 $$;
 

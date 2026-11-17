@@ -317,7 +317,11 @@ test("T24e: refresh policies are registered with the documented cadence", async 
       assert.equal(row.schedule_interval.minutes, 15, "15-minute cadence");
       assert.equal(row.schedule_interval.hours ?? 0, 0, "15-minute cadence (not hourly)");
       assert.equal(row.config.end_offset, "00:15:00", "live bucket stays out");
-      assert.equal(row.config.start_offset, "2 days", "2-day refresh window");
+      assert.equal(
+        row.config.start_offset,
+        "5 days",
+        "window covers the rollup days 2–4",
+      );
     }
     const aggs = await client.query(
       `SELECT view_name, materialized_only FROM timescaledb_information.continuous_aggregates

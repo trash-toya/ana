@@ -203,7 +203,8 @@ export async function assertNoCustomJobs(client) {
   const res = await client.query(
     `SELECT count(*) AS n FROM timescaledb_information.jobs
       WHERE proc_name IN ('archive_sessions', 'rebuild_session_stats',
-                          'cleanup_idempotency', 'reconcile_session_stats')`,
+                          'cleanup_idempotency', 'reconcile_session_stats',
+                          'rollup_daily')`,
   );
   if (Number(res.rows[0].n) !== 0) {
     throw new Error("custom jobs are scheduled in a test database (0014 leaked)");

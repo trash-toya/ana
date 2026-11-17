@@ -56,14 +56,16 @@ SELECT add_retention_policy('events_15m', INTERVAL '90 days');
 SELECT add_retention_policy('identity_15m', INTERVAL '90 days');
 -- The newest partial bucket stays out of the materialization (end_offset = one
 -- bucket): refreshing a bucket that is still receiving writes is wasted work,
--- and the real-time layer serves it anyway.
+-- and the real-time layer serves it anyway. start_offset = 5 days: the nightly
+-- rollup_daily consumes local days 2–4 old, and late events can land there —
+-- a 2-day window would leave those sketches stale forever (see 0013).
 SELECT add_continuous_aggregate_policy(
   'events_15m',
-  start_offset      => INTERVAL '2 days',
+  start_offset      => INTERVAL '5 days',
   end_offset        => INTERVAL '15 minutes',
   schedule_interval => INTERVAL '15 minutes');
 SELECT add_continuous_aggregate_policy(
   'identity_15m',
-  start_offset      => INTERVAL '2 days',
+  start_offset      => INTERVAL '5 days',
   end_offset        => INTERVAL '15 minutes',
   schedule_interval => INTERVAL '15 minutes');

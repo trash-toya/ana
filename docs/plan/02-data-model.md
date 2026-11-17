@@ -224,11 +224,36 @@ bootstrap creates no analytics rows (D30). Resume reads the idle clock but never
 it; only `ingest_batch()` advances `last_event_at`. `cleanup_idempotency` prunes rows
 older than 3 days, bounded like the dedupe/guard deletes.
 
-### Daily tables (P3)
+### Daily tables (P3, `0013_daily.sql`)
 
 `session_stats_daily (tenant_id, local_day)` with `sessions`, `bounced`,
-`total_duration_s numeric(20,6)`, `heartbeat_s`, `events`; `identity_daily` with rolled HLLs.
-Rebuilt two to four days behind, three nights in a row, so partial local days never land.
+`total_duration_s numeric(20,6)`, `heartbeat_s`, `events`; `identity_daily` with rolled
+HLL **states** (`anon_hll`, `users_hll`), so multi-day windows keep composing —
+`distinct_count(rollup(...))` finalizes at read time, exactly like the 15-minute
+sketches. `rollup_daily` rewrites local days `[current_date-4, current_date-1)` each
+night (three nights per day, the 26–50 h late-partial window); yesterday and today are
+never written because their local day is still open — the live slice serves them.
+
+Details that were settled by T25, not by the blueprint:
+
+- **Bounce = `ec_0 + ec_1`** (sessions with ≤ 1 engagement event); the rate is
+  `bounced / sessions`, computed at display time. `session_stats_15m` remains the single
+  source of truth; the daily row is a pure sum of its columns.
+- **The tz day cast needs `AT TIME ZONE tz` first.** `time_bucket(INTERVAL '1 day', ts,
+  tz)` returns the local-midnight `timestamptz`; a bare `::date` re-interprets it in the
+  session timezone and silently undoes the tz shift (Asia/Kolkata vs Kathmandu was the
+  test pair). The UTC prune window is ±14 h around the date bounds, widest real-world
+  offsets; the per-tenant expression filter is authoritative.
+- **Staleness is handled by the refresh policy, not the job.** Late events can land in
+  2–4-day-old buckets, so the CAGG refresh policy's `start_offset` is 5 days (0012) —
+  any late arrival is re-materialized within the 15-minute cadence, and `rollup_daily`
+  reads only fresh sketches. (`refresh_continuous_aggregate()` is a procedure and cannot
+  be nested inside the rollup procedure — verified against the pinned version.)
+- **Locking:** `rollup_daily` takes the same advisory lock (7001) as
+  `rebuild_session_stats`/`archive_sessions`, so it never reads a 15-minute range
+  mid-rebuild. Idempotency: delete-then-recompute per window; two runs with unchanged
+  sources produce identical tables. The `add_job` registration lives in `0014`
+  (INTERVAL '1 day'), per the jobs convention.
 
 ## Row-level security (P4)
 

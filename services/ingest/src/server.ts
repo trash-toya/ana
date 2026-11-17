@@ -17,7 +17,7 @@ if (!databaseUrl) {
 
 const pool = new pg.Pool({
   connectionString: databaseUrl,
-  max: 10, // transaction-mode pooling: few connections go a long way
+  max: config.pgPoolMax, // transaction-mode pooling: few connections go a long way
   idleTimeoutMillis: 30_000,
   connectionTimeoutMillis: 5_000,
   statement_timeout: 10_000,
@@ -49,9 +49,17 @@ if (!sessions) {
 }
 
 const flusher = new Flusher({ pool, ...config });
-const app = createApp({ pool, flusher, sessions, limits: config.limits });
+const app = createApp({
+  pool,
+  flusher,
+  sessions,
+  limits: config.limits,
+  instanceId: config.instanceId,
+});
 const server = app.listen(config.port, () => {
-  console.log(JSON.stringify({ msg: "listening", port: config.port }));
+  console.log(
+    JSON.stringify({ msg: "listening", port: config.port, instance: config.instanceId }),
+  );
 });
 
 async function shutdown(signal: string): Promise<void> {

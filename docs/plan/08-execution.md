@@ -216,7 +216,7 @@ are additionally pinned by the P3-3 endpoint tests. P3 rows P3-1…P3-8 are clos
 | P4-2 | Cross-tenant automated test wired into CI                                                                                                                                                                                                                                                                                       | P4-1       | Build fails if isolation regresses                                       |
 | P4-3 | Abuse protection: limits, rate limits, key rotation, cardinality alerts                                                                                                                                                                                                                                                         | P4-1       | Documented limits enforced with tests                                    |
 | P4-4 | Synchronous standby + Patroni-style failover + fencing                                                                                                                                                                                                                                                                          | G3         | T11 passes; RPO 0 measured                                               |
-| P4-5 | LB with consistent hash on `anon_id`                                                                                                                                                                                                                                                                                            | P4-4       | Same visitor lands on one instance; lock waits drop                      |
+| P4-5 | LB with consistent hash on the visitor key (`X-Analytics-Route`, D40)                                                                                                                                                                                                                                                           | P4-4       | Same visitor lands on one instance; lock waits drop                      |
 | P4-6 | Load test at 2x peak, 1 hour                                                                                                                                                                                                                                                                                                    | P4-3, P4-5 | p95 flush under 200 ms; error rate under 0.5%                            |
 | P4-7 | Alerts, dashboards, runbooks (5 files), on-call checklist                                                                                                                                                                                                                                                                       | P4-6       | Every alert has a runbook link and a trigger test                        |
 | P4-8 | Deletion workflow end-to-end incl. HMAC option and legal sign-off note                                                                                                                                                                                                                                                          | P4-2, P3-5 | T8 plus a full seven-step dry run recorded                               |
@@ -298,6 +298,21 @@ verifies every acknowledged event plus a Timescale job. Measured on 2026-11-17:
 repo ships the drill rather than an untested controller — and
 `ops/runbooks/failover.md` is the fencing-first procedure (fence → promote → clear sync
 list → move endpoint → verify jobs → rebuild a standby).
+
+P4-5 evidence (D40): both SDKs attach `X-Analytics-Route` on every POST — the envelope
+`anon_id`, else the first event's `anon_id`, else its `session_id`
+(`packages/sdk-web/src/transport.ts`, `packages/sdk-server/src/transport.ts`, tested in
+`packages/{sdk-web,sdk-server}/test/route.test.mjs`). The ingest LB is
+`ops/lb/haproxy.cfg`: frontend `:18080` uses `balance hdr(X-Analytics-Route)` with
+`hash-type consistent`; `:18081` is a roundrobin control. `pnpm test:lb` starts two ingest
+processes (different `INSTANCE_ID`, surfaced as `X-Ingest-Instance`) behind HAProxy and
+drives 32 visitors × 5 requests: 0/32 visitors split across instances, both instances used,
+and the roundrobin control split 8/8 sampled visitors across both. A 120-request
+hot-session burst through each frontend sampled `pg_stat_activity` for lock waits (0 at
+drill scale; the 2×-peak contention number is P4-6's job). The header is advisory —
+missing or wrong values only cost locality, so no API contract depends on the LB. The
+drill is out of PR CI (Docker) and runs beside the base stack (`sa-lb` project, host ports
+18080/18081; 8080 is commonly taken by local dashboards). Full suite 278/278 (50 files).
 
 P4-5 (LB) can land before P4-4; the drill needs the LB, so treat the two as one increment
 even though the IDs stay stable.

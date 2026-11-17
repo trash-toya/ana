@@ -1,0 +1,18 @@
+# P4-5 load balancer drill: consistent hashing on X-Analytics-Route.
+#
+# Two backends are two local ingest processes (ops/lb/lb-drill.mjs starts them
+# on 3101/3102); HAProxy runs with host networking so 127.0.0.1 reaches them.
+#
+#   18080 — consistent hash on the visitor key (the production shape)
+#   18081 — roundrobin (control: the same load without affinity)
+#
+# Run with: node ops/lb/lb-drill.mjs
+name: sa-lb
+
+services:
+  haproxy:
+    image: haproxy:2.9-alpine
+    network_mode: host
+    volumes:
+      - ./haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    restart: "no"

@@ -15,6 +15,10 @@ export interface IngestConfig {
   flushIntervalMs: number;
   /** Abuse-protection buckets (per instance; see limits.ts and D38). */
   limits: LimitConfig;
+  /** Stable instance label (P4-5 LB drill); surfaces as X-Ingest-Instance. */
+  instanceId?: string;
+  /** DB pool size per instance (PgBouncer transaction mode keeps this small). */
+  pgPoolMax: number;
 }
 
 export function configFromEnv(env: NodeJS.ProcessEnv = process.env): IngestConfig {
@@ -30,6 +34,8 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): IngestConfi
       tenant: bucketFromEnv(env, "TENANT", LIMIT_DEFAULTS.tenant),
       session: bucketFromEnv(env, "SESSION", LIMIT_DEFAULTS.session),
     },
+    instanceId: env.INSTANCE_ID,
+    pgPoolMax: Number(env.PG_POOL_MAX ?? 10),
   };
 }
 

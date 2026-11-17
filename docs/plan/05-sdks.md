@@ -23,6 +23,12 @@ handling, and differ in runtime, session ownership and durability.
 | No headless sessions | Client SDKs: push handlers, background fetch and headless tasks must not call `track()`                                                                                                                                     |
 | Provenance           | Every event carries `source`; a public client key may claim only `client` (D28)                                                                                                                                             |
 
+Requests carry `Content-Type: application/json` and `X-API-Key`, plus
+`X-Analytics-Route` — an **advisory** load-balancer key derived from the batch: the
+envelope `anon_id`, else the first event's `anon_id`, else its `session_id`. The ingest LB
+hashes it so one visitor's batches land on one instance (P4-5); a missing header only
+costs locality, never correctness.
+
 ## Server SDK (`packages/sdk-server`)
 
 ```ts

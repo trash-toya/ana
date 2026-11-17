@@ -10,6 +10,30 @@
 /** Same limit as the ingest API (packages/shared contract.ts). */
 export const MAX_EVENTS_PER_REQUEST = 500;
 
+/**
+ * P4-5: the ingest LB hashes `X-Analytics-Route` so one visitor's batches land
+ * on one instance (session_guard locks stay local). Envelope anon_id wins; a
+ * server batch may omit it, so fall back to the first event's anon_id, then its
+ * session_id. Duplicated in the server SDK for the no-runtime-dependency rule.
+ */
+export function routeKey(body: unknown): string | null {
+  const batch = body as {
+    anon_id?: unknown;
+    events?: Array<{ anon_id?: unknown; session_id?: unknown }>;
+  } | null;
+  if (typeof batch?.anon_id === "string" && batch.anon_id !== "") return batch.anon_id;
+  const events = Array.isArray(batch?.events) ? batch.events : [];
+  for (const event of events) {
+    if (typeof event?.anon_id === "string" && event.anon_id !== "") return event.anon_id;
+  }
+  for (const event of events) {
+    if (typeof event?.session_id === "string" && event.session_id !== "") {
+      return event.session_id;
+    }
+  }
+  return null;
+}
+
 import type { QueuedEvent } from "./queue.js";
 
 /** 60 KB — keepalive bodies above this are rejected by the browser. */
@@ -85,11 +109,14 @@ export async function sendBatch(
 ): Promise<SendResult> {
   let res: FetchResponse;
   try {
+    const route = routeKey(body);
     res = await fetchFn(endpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "X-API-Key": apiKey,
+        // P4-5: stable LB routing; the header is advisory (locality only).
+        ...(route ? { "X-Analytics-Route": route } : {}),
       },
       body: JSON.stringify(body),
       keepalive: true,

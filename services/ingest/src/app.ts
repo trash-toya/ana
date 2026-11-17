@@ -67,6 +67,8 @@ export interface IngestAppOptions {
   limits?: LimitConfig | null;
   /** Pre-built limiter (tests inject one with a fake clock). */
   limiter?: RateLimiter;
+  /** Response label for the LB drill (P4-5); omitted in normal tests. */
+  instanceId?: string;
 }
 
 export function createApp(options: IngestAppOptions): Express {
@@ -97,6 +99,14 @@ export function createApp(options: IngestAppOptions): Express {
 
   const app: Express = express();
   app.disable("x-powered-by");
+
+  if (options.instanceId) {
+    const instanceId = options.instanceId;
+    app.use((_req: Request, res: Response, next: NextFunction) => {
+      res.set("X-Ingest-Instance", instanceId);
+      next();
+    });
+  }
 
   app.use(countRequests(metrics));
 

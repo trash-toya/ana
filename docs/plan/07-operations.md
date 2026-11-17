@@ -3,7 +3,7 @@
 ## Topology (Compose, local + CI + staging)
 
 ```
-web/RN SDK ──► LB (consistent hash on anon_id) ──► ingest (Express, stateless)
+web/RN SDK ──► LB (consistent hash on X-Analytics-Route) ──► ingest (Express, stateless)
                                                     │
                                               PgBouncer (transaction pooling)
                                                     │
@@ -12,14 +12,14 @@ web/RN SDK ──► LB (consistent hash on anon_id) ──► ingest (Express, 
                               synchronous standby        async replica (dashboards)
 ```
 
-| Service        | Image                                                                                  | Notes                                                                   |
-| -------------- | -------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| `db`           | `timescale/timescaledb-ha:pg17` (verify tag; fall back to the newest available `pg17`) | Must include `timescaledb_toolkit`; assert it in a healthcheck          |
-| `pgbouncer`    | `edoburu/pgbouncer`                                                                    | `pool_mode=transaction`, `max_client_conn=1000`, `default_pool_size=20` |
-| `ingest`       | local build                                                                            | 4–8 DB connections per instance                                         |
-| `dashboard`    | local build                                                                            | Separate role, separate pool                                            |
-| `standby` (P4) | same image, `pg_basebackup` + `primary_conninfo`                                       | For the T11 drill                                                       |
-| `lb` (P4)      | HAProxy or nginx                                                                       | Hash on `anon_id` header/field                                          |
+| Service        | Image                                                                                  | Notes                                                                       |
+| -------------- | -------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| `db`           | `timescale/timescaledb-ha:pg17` (verify tag; fall back to the newest available `pg17`) | Must include `timescaledb_toolkit`; assert it in a healthcheck              |
+| `pgbouncer`    | `edoburu/pgbouncer`                                                                    | `pool_mode=transaction`, `max_client_conn=1000`, `default_pool_size=20`     |
+| `ingest`       | local build                                                                            | 4–8 DB connections per instance                                             |
+| `dashboard`    | local build                                                                            | Separate role, separate pool                                                |
+| `standby` (P4) | same image, `pg_basebackup` + `primary_conninfo`                                       | For the T11 drill                                                           |
+| `lb` (P4)      | HAProxy (`ops/lb/haproxy.cfg`)                                                         | `balance hdr(X-Analytics-Route)` + `hash-type consistent`; visitor affinity |
 
 Verification in P0, before any other work: `CREATE EXTENSION timescaledb_toolkit;` and a
 `hyperloglog` round-trip, because `identity_15m` depends on it. If the image lacks the
@@ -113,6 +113,15 @@ customers.
 Timescale jobs live in the catalog and replicate, but the scheduler must be configured on
 the standby; after every failover drill, verify archive/cleanup/rollup resumed with no
 backlog.
+
+**P4-5 routing (measured):** both SDKs send `X-Analytics-Route` (envelope `anon_id`,
+else first event's `anon_id`, else `session_id`); HAProxy hashes it with
+`hash-type consistent`. `pnpm test:lb` starts two ingest instances behind HAProxy
+(:18080 hash, :18081 roundrobin control), sends 32 visitors × 5 requests each, and
+asserts every visitor hit exactly one instance while the control split all 8 sampled
+visitors across both. Session_guard lock waits are sampled during a 120-request hot-session
+burst (0 observed at drill scale; the cross-instance contention number belongs to the P4-6
+2×-peak load test). The header is advisory: absent values only cost locality (D40).
 
 **P4-4 drill (measured):** `pnpm test:ha` runs the fencing-first sequence on the pinned
 image (`ops/ha/`, primary + synchronous standby + PgBouncer): SIGKILL the primary,

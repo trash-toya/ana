@@ -145,6 +145,17 @@ tie-break with same-timestamp/NULL-seq events, replay storage-order, live
 tie-break is the documented `(time, seq NULLS LAST, event_id)` storage order — the
 PDF itself is not in-repo (see the shapes note in 04-services.md).
 | P3-5 | Reconcile + retention verification (90 d / 5 y tiers)                                                                                                                                                          | P3-2    | Nightly reconcile zero drift; retention drops whole chunks               |
+
+P3-5 evidence (T26, `db/test/rollups/`): a late partial at now-30 h merges as exact
+deltas and the nightly reconcile stays silent (T26a); at now-60 h — always inside the
+rollup window — `events_15m` equals the raw aggregate, `session_stats_daily` /
+`identity_daily` equal an independent recompute from `sessions_history` / `events`,
+and a deliberately corrupted daily row is rewritten by the next `rollup_daily` run
+(T26b). Retention: the five 90 d policies are registered on
+`events`/`sessions_history`/`session_stats_15m`/`events_15m`/`identity_15m` and the
+daily tables carry none (T26c); `drop_chunks` (a function on 2.32, spiked) drops
+whole 1-day chunks with the 90-day boundary day retained, and the 5 y daily tier
+survives raw retention (T26d).
 | P3-6 | Dashboard performance pass                                                                                                                                                                                     | P3-4    | p95 under 500 ms with synthetic peak ingest                              |
 | P3-7 | Freshness gate (Notion §22): scheduled aggregation keeps dashboards within 1 h under load and after a backlog; publish last-updated/stale state                                                                | P3-2    | Backlog replay within the 1 h bound; freshness exposed to dashboards     |
 | P3-8 | Session-cap contract decision (Notion §22): keep synchronous guard enforcement while deferring only summary maintenance, or make the cap analytical — documented + tested before any async session association | G1B     | Written decision + tests; the hard 5,000 cap is never silently weakened  |

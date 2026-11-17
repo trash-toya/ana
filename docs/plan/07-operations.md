@@ -76,6 +76,14 @@ every job as that role, which is also what keeps the scheduler working after a f
 Compression: 7-day delay on `events` and `sessions_history`, `segmentby tenant_id`.
 Late events and merges therefore only ever touch uncompressed chunks.
 
+Retention semantics verified on the pinned image in P3-5 (T26): `drop_chunks` is a
+**function** on Timescale 2.32 (`SELECT drop_chunks(tbl, INTERVAL '90 days')`), drops
+**whole chunks** only (1-day chunks on `events`/`sessions_history`), and retains the
+90-day boundary day. The 5 y tier on the daily tables has no deletion mechanism in
+P0–P4 by design — and it must survive raw retention, because `identity_daily`'s HLL
+states are the only long-horizon source of visitor/user counts once the 15m sketches
+and raw events age out (T26d).
+
 ## Failure model
 
 | Failure                         | Behaviour                                    | Mitigation                                  |

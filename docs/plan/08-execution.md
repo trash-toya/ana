@@ -134,6 +134,16 @@ session counts; nothing acknowledged is lost.
 | P3-2 | `session_stats_daily`, `identity_daily`, `rollup_daily` (days 2–4, three nights)                                                                                                                               | P3-1    | Partial local days never written; UTC+5:30 and UTC+5:45 correct          |
 | P3-3 | Dashboard API: hourly, daily, live endpoints with `tenant_settings.tz`                                                                                                                                         | P3-1    | Matches the blueprint's example output shape                             |
 | P3-4 | Drill-down endpoints: replay, entry pages, funnels with `(time, seq, event_id)` ordering                                                                                                                       | P3-3    | Funnel tie-break case from the PDF passes                                |
+
+Both rows landed together (`services/dashboard`, one service): auth (dashboard-key
+only, 60 s cache), the six endpoints per the shapes section in 04-services.md, and
+21 tests (auth 7, endpoints 14). Done-when evidence: shapes pinned by
+`endpoints.test.mjs` (hourly live-slice labelling + D18 exclusion, daily closed/open
+merge with `Asia/Kolkata` grouping and HLL identity `approximate: true`, funnel
+tie-break with same-timestamp/NULL-seq events, replay storage-order, live
+5-min + D18, tenant scoping 404s, READ-ONLY transactions + invariants). The funnel
+tie-break is the documented `(time, seq NULLS LAST, event_id)` storage order — the
+PDF itself is not in-repo (see the shapes note in 04-services.md).
 | P3-5 | Reconcile + retention verification (90 d / 5 y tiers)                                                                                                                                                          | P3-2    | Nightly reconcile zero drift; retention drops whole chunks               |
 | P3-6 | Dashboard performance pass                                                                                                                                                                                     | P3-4    | p95 under 500 ms with synthetic peak ingest                              |
 | P3-7 | Freshness gate (Notion §22): scheduled aggregation keeps dashboards within 1 h under load and after a backlog; publish last-updated/stale state                                                                | P3-2    | Backlog replay within the 1 h bound; freshness exposed to dashboards     |

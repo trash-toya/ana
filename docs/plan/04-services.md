@@ -195,6 +195,40 @@ Rules that hold for every endpoint:
 4. Visitor and user counts are returned with `"approximate": true` (HLL, ~1.6% error).
 5. p95 target under 500 ms with ingest at peak; measured in P4.
 
+### Response shapes (P3-3/P3-4, `services/dashboard`)
+
+The blueprint's Example N JSON comes from the PDF, not this repo; the shapes below are
+the implementation's contract (T-tests in `services/dashboard/test` pin them). Common
+rules: every hourly/daily row carries `bounce_rate = bounced / sessions` (`null` when
+the denominator is 0, rounded to 4 decimals); visitor/user counts carry
+`"approximate": true`; timestamps are ISO UTC; day keys are `YYYY-MM-DD` in the
+requested tz.
+
+- `GET /v1/metrics/hourly?from&to` → `{ hours: [{ hour, sessions, bounce_rate, events,
+  total_duration_s, source: "stats_15m" }], live: { sessions, events, engaged_events,
+  live: true } }`. The live slice is a separate labelled object (D14), never folded
+  into the hours array; it already excludes closed sessions (D18).
+- `GET /v1/metrics/daily?from&to&tz` → `{ days: [{ day, sessions, bounce_rate, events,
+  total_duration_s, visitors, users, approximate: true, source: "daily" | "15m" }], tz }`.
+  `source` records which store served the day: `session_stats_daily`/`identity_daily`
+  where the nightly rollup has written them ("daily"), the real-time 15m CAGGs
+  otherwise ("15m" — yesterday/today and any day older than the rollup window).
+  A daily-table row is authoritative for its whole day; the 15m aggregate fills the
+  rest. Days with neither source are omitted (no zero-filler).
+- `GET /v1/sessions/:id/replay` → `{ session: {...attribution and counters...},
+  events: [{ event_id, time, seq, cat, name, url, props }] }` ordered by
+  `(time, seq NULLS LAST, event_id)` — the storage order. Unknown or foreign-tenant
+  session → 404; malformed id → 400.
+- `GET /v1/entry-pages?from&to` → `{ entry_pages: [{ entry_url, sessions, bounce_rate,
+  avg_duration_s }] }`, top 20 by sessions, read through the `sessions` view (the view
+  carries the D18 anti-join).
+- `POST /v1/funnels` (body `{ from, to, steps[] }`, 1–10 steps) → `{ steps: [{ step,
+  name, sessions, conversion }] }`, `conversion` relative to step 1. Steps must match
+  engagement events (`cat = 'e'`) in `(time, seq, event_id)` order — out-of-order
+  sequences do not count.
+- `GET /v1/live` → `{ live: true, count, sessions: [...] }` — the 5-minute
+  `sessions_active` slice (D14) with the D18 anti-join, newest first.
+
 ## Observability
 
 | Layer        | Signals                                                                                                                         |

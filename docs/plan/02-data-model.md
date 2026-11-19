@@ -98,11 +98,13 @@ CREATE INDEX event_dedupe_age ON event_dedupe (received_at);
 
 **Invariant D1:** a dedupe row exists **only for an event that was stored**. This is the
 fix for the blueprint's silent-loss bug ([DEVIATIONS.md](DEVIATIONS.md) D1). Consequence:
-`count(event_dedupe)` ≈ `count(events within 3 days)` and the table can be monitored as
+`count(event_dedupe)` ≈ `count(events within 90 days)` and the table can be monitored as
 such.
 
-Retention: delete by `received_at < now() - 3 days`, bounded batches (200k/run, 1/min).
-3 days = 24 h event age limit + 24 h max session length + 1 day margin.
+Retention: delete by `received_at < now() - 90 days`, in bounded batches (200k/run,
+1/min). This matches raw-event retention and preserves idempotent outcomes for producer
+replays throughout the 90-day event horizon. The 3-day lifecycle cleanup applies only to
+`session_guard` and `session_bootstrap`, not to `event_dedupe`.
 
 ### `session_guard` (identity, lock, cap)
 

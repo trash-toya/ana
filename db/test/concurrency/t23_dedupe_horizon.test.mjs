@@ -38,6 +38,17 @@ test("T23: dedupe survives to 90 days; session-lifecycle rows go at 3 days", asy
         [tenant, guardKeep, guardDrop],
       );
 
+      // Bootstrap records use last_event_at for the same 3-day lifecycle horizon.
+      const bootstrapKeep = randomUuid();
+      const bootstrapDrop = randomUuid();
+      await c.query(
+        `INSERT INTO session_bootstrap
+           (tenant_id, session_id, anon_id, started_at, last_event_at)
+         VALUES ($1, $2, 'anon-keep', now() - interval '2 days', now() - interval '2 days'),
+                ($1, $3, 'anon-drop', now() - interval '4 days', now() - interval '4 days')`,
+        [tenant, bootstrapKeep, bootstrapDrop],
+      );
+
       await c.query("CALL cleanup_idempotency($1, $2)", [0, "{}"]);
 
       const dedupe = await c.query(
@@ -58,6 +69,16 @@ test("T23: dedupe survives to 90 days; session-lifecycle rows go at 3 days", asy
         guards.rows.map((r) => r.session_id),
         [guardKeep],
         "4-day guard purged, 2-day guard retained",
+      );
+
+      const bootstraps = await c.query(
+        "SELECT session_id FROM session_bootstrap WHERE tenant_id = $1",
+        [tenant],
+      );
+      assert.deepEqual(
+        bootstraps.rows.map((r) => r.session_id),
+        [bootstrapKeep],
+        "4-day bootstrap purged, 2-day bootstrap retained",
       );
     } finally {
       c.release();

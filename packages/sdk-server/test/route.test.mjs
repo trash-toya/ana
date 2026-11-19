@@ -3,7 +3,7 @@
 // construction) and the header keeps a backend's session_guard locks local.
 import { test } from "vitest";
 import assert from "node:assert/strict";
-import { routeKey, sendBatch } from "../dist/transport.js";
+import { routeKey, sendBatch, selectBatch } from "../dist/transport.js";
 
 test("routeKey: falls back to per-event identifiers", () => {
   assert.equal(
@@ -41,4 +41,24 @@ test("sendBatch: sets X-Analytics-Route on the wire", async () => {
   });
   assert.equal(outcome.kind, "ok");
   assert.equal(seen["X-Analytics-Route"], "visitor-srv");
+});
+
+
+test("server batch sizing uses UTF-8 bytes for multibyte properties", () => {
+  const pad = "漢🙂".repeat(100);
+  const events = [
+    { event_id: "e1", name: "custom", props: { pad } },
+    { event_id: "e2", name: "custom", props: { pad } },
+  ];
+  const maxBytes = 1800;
+  const plan = selectBatch(events, maxBytes);
+  assert.equal(plan.events.length, 1, "the second multibyte event must exceed the byte budget");
+  assert.ok(plan.bytes <= maxBytes);
+  const actualBody = {
+    schema_version: 1,
+    anon_id: "visitor",
+    sent_at: new Date().toISOString(),
+    events: plan.events,
+  };
+  assert.ok(new TextEncoder().encode(JSON.stringify(actualBody)).byteLength <= maxBytes);
 });

@@ -68,7 +68,8 @@ every job as that role, which is also what keeps the scheduler working after a f
 | `events`                                             | per event          | 90 d           | `add_retention_policy`             |
 | `sessions_history`                                   | per session        | 90 d           | `add_retention_policy`             |
 | `sessions_active`                                    | live               | ~40–50 min     | `archive_sessions` every minute    |
-| `session_guard`, `event_dedupe`, `session_bootstrap` | identity/lifecycle | 3 d by row age | `cleanup_idempotency` every minute |
+| `event_dedupe`                                     | idempotency         | 90 d           | `cleanup_idempotency` every minute |
+| `session_guard`, `session_bootstrap`                | identity/lifecycle  | 3 d by row age | `cleanup_idempotency` every minute |
 | `session_stats_15m`, `events_15m`, `identity_15m`    | 15 min UTC         | 90 d           | retention policies                 |
 | `session_stats_daily`, `identity_daily`              | tenant-local day   | 5 y            | none (upserted)                    |
 | Monthly (optional)                                   | month              | indefinitely   | yearly job, not in P0–P4           |

@@ -258,7 +258,6 @@ test("session service: a short secret is a configuration error", () => {
   );
 });
 
-
 test("bootstrap: concurrent first requests for one visitor converge on one session", async () => {
   await withTestDb("ingest_sessions_bootstrap_race", async ({ pool }) => {
     const sessions = makeSessions(pool);

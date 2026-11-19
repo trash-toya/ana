@@ -43,7 +43,6 @@ test("sendBatch: sets X-Analytics-Route on the wire", async () => {
   assert.equal(seen["X-Analytics-Route"], "visitor-srv");
 });
 
-
 test("server batch sizing uses UTF-8 bytes for multibyte properties", () => {
   const pad = "漢🙂".repeat(100);
   const events = [
@@ -52,7 +51,11 @@ test("server batch sizing uses UTF-8 bytes for multibyte properties", () => {
   ];
   const maxBytes = 1800;
   const plan = selectBatch(events, maxBytes);
-  assert.equal(plan.events.length, 1, "the second multibyte event must exceed the byte budget");
+  assert.equal(
+    plan.events.length,
+    1,
+    "the second multibyte event must exceed the byte budget",
+  );
   assert.ok(plan.bytes <= maxBytes);
   const actualBody = {
     schema_version: 1,

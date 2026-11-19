@@ -24,11 +24,26 @@ SET search_path = pg_catalog, public
 AS $$
 DECLARE
   r jsonb;
+  v_event record;
 BEGIN
   -- 0. materialize the batch once; ordered so the lock order is visible in one place
   CREATE TEMP TABLE batch_sessions ON COMMIT DROP AS
     SELECT * FROM parse_batch(p)
    ORDER BY tenant_id, session_id, ord;
+
+  -- 0b. serialize dedupe claims by (tenant,event_id), not by session.
+  -- Session guard locks cannot protect the same event_id arriving concurrently
+  -- on different sessions. Acquire advisory locks in stable key order so the
+  -- later dedupe read observes the winner and can distinguish dup from conflict.
+  FOR v_event IN
+    SELECT DISTINCT tenant_id, event_id
+      FROM batch_sessions
+     ORDER BY tenant_id, event_id
+  LOOP
+    PERFORM pg_advisory_xact_lock(
+      hashtextextended(v_event.tenant_id::text || ':' || v_event.event_id::text, 1)
+    );
+  END LOOP;
 
   -- 1. identity: every session in the batch has a guard row before any quota is computed
   INSERT INTO session_guard (tenant_id, session_id, home_day)

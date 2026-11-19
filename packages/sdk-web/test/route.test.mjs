@@ -3,7 +3,7 @@
 // only locality depends on it.
 import { test } from "vitest";
 import assert from "node:assert/strict";
-import { routeKey, sendBatch } from "../dist/transport.js";
+import { routeKey, sendBatch, selectBatch } from "../dist/transport.js";
 
 test("routeKey: envelope anon_id wins, then event anon_id, then session_id", () => {
   assert.equal(routeKey({ anon_id: "visitor-1", events: [] }), "visitor-1");
@@ -57,4 +57,27 @@ test("sendBatch: omits the header when the batch has no routing key", async () =
     },
   );
   assert.equal("X-Analytics-Route" in seen, false);
+});
+
+test("web batch sizing uses UTF-8 bytes for multibyte properties", () => {
+  const pad = "漢🙂".repeat(100);
+  const events = [
+    { event_id: "e1", name: "custom", props: { pad } },
+    { event_id: "e2", name: "custom", props: { pad } },
+  ];
+  const maxBytes = 1800;
+  const plan = selectBatch(events, maxBytes);
+  assert.equal(
+    plan.events.length,
+    1,
+    "the second multibyte event must exceed the byte budget",
+  );
+  assert.ok(plan.bytes <= maxBytes);
+  const actualBody = {
+    schema_version: 1,
+    anon_id: "visitor",
+    sent_at: new Date().toISOString(),
+    events: plan.events,
+  };
+  assert.ok(new TextEncoder().encode(JSON.stringify(actualBody)).byteLength <= maxBytes);
 });

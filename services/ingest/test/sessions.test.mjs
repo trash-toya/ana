@@ -257,3 +257,22 @@ test("session service: a short secret is a configuration error", () => {
     /at least/,
   );
 });
+
+test("bootstrap: concurrent first requests for one visitor converge on one session", async () => {
+  await withTestDb("ingest_sessions_bootstrap_race", async ({ pool }) => {
+    const sessions = makeSessions(pool);
+    const tenantId = crypto.randomUUID();
+    const anonId = "same-visitor";
+    const [left, right] = await Promise.all([
+      sessions.service.start(tenantId, { anon_id: anonId, user_id: "u1" }),
+      sessions.service.start(tenantId, { anon_id: anonId, user_id: "u1" }),
+    ]);
+    assert.equal(left.session_id, right.session_id);
+    assert.equal([left.resumed, right.resumed].filter(Boolean).length, 1);
+    const count = await pool.query(
+      "SELECT count(*)::int AS n FROM session_bootstrap WHERE tenant_id = $1 AND anon_id = $2",
+      [tenantId, anonId],
+    );
+    assert.equal(count.rows[0].n, 1);
+  });
+});

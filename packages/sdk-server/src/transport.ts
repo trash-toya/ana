@@ -52,9 +52,12 @@ export function selectBatch(
   maxEvents = MAX_EVENTS_PER_REQUEST,
 ): BatchPlan {
   const batch: QueuedEvent[] = [];
-  let bytes = 0;
+  // Reserve room for the JSON array delimiters and the envelope metadata.
+  // TextEncoder counts UTF-8 bytes; String.length counts UTF-16 code units.
+  let bytes = 1024;
+  const encoder = new TextEncoder();
   for (const event of events) {
-    const size = JSON.stringify(event).length + 2;
+    const size = encoder.encode(JSON.stringify(event)).byteLength + 1; // comma
     if (batch.length >= maxEvents) break;
     if (batch.length > 0 && bytes + size > maxBytes) break;
     batch.push(event);

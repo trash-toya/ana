@@ -127,10 +127,25 @@ test("G3: headline metrics read rollups + live only — no raw-event fallback; b
       .get(`/v1/metrics/hourly?from=${from}&to=${to}`)
       .set(auth);
     assert.equal(after.status, 200);
+    if (after.body.hours.length !== 1) {
+      const dbg = await pool.query(
+        `SELECT bucket, sessions, events FROM session_stats_15m
+          WHERE tenant_id = $1
+            AND bucket >= $2::timestamptz AND bucket < $3::timestamptz
+          ORDER BY bucket`,
+        [tenantId, from, to],
+      );
+      console.error(
+        "DEBUG hours:",
+        JSON.stringify(after.body.hours),
+        "stats rows:",
+        JSON.stringify(dbg.rows),
+      );
+    }
     assert.equal(
       after.body.hours.length,
       1,
-      "stats-backed hour appears after the rollup",
+      `stats-backed hour appears after the rollup: ${JSON.stringify(after.body.hours)}`,
     );
     const hour = after.body.hours[0];
     assert.equal(Number(hour.sessions), 5);
